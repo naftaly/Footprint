@@ -6,7 +6,6 @@
 ///
 
 import Foundation
-import UIKit
 
 /// The footprint manages snapshots of app memory limits and state,
 /// and notifies your app when these change.
