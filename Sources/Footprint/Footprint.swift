@@ -1,26 +1,9 @@
-/**
-MIT License
-
-Copyright (c) 2024 Alexander Cohen
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-*/
+///
+///  Footprint.swift
+///  Footprint
+///
+///  Copyright (c) 2023 Alexander Cohen. All rights reserved.
+///
 
 import Foundation
 import UIKit
@@ -32,7 +15,7 @@ import UIKit
 /// and if there is an issue, a notification will tell you when to drop objects and you should be ok.
 /// This works well for smaller apps, but as soon as your app grows you start finding that these
 /// notifications come too late and with too many restrictions.
-
+///
 /// Later came `os_proc_available_memory` which gives us the amount of memory left
 /// to our apps before they are terminated. Now we're getting somewhere, we can finally tell if
 /// memory was the actual reason for being terminated. But again, we're still missing the upper
@@ -43,7 +26,7 @@ import UIKit
 /// This is where `Footprint` comes in. It gives you the opportunity to handle memory in
 /// levels (Footprint.Memory.State) instead of all at once at the end. It expects you to change
 /// your apps behavior as your users explore.
-
+///
 /// A simple use example is with caches. You could change the maximum cost
 /// of said cache based on the `.State`. Say, `.normal` has a 100% multiplier,
 ///`.warning` is 80%, `.critical` is 50%  and so on. This leads to your
