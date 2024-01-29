@@ -205,23 +205,20 @@ import SwiftUI
 @available(iOS 13.0, macOS 10.15, tvOS 13.0, watchOS 6.0, *)
 extension View {
     
-    /**
-     A SwiftUI extension providing a convenient way to observe changes in the memory state of the app through the `onFootprintMemoryStateDidChange` modifier.
-     
-     ## Overview
-     
-     The `onFootprintMemoryStateDidChange` extension allows you to respond to changes in the app's memory state by providing a closure that is executed whenever the memory state transitions.
-     
-     ### Example Usage
-     
-     ```swift
-     Text("Hello, World!")
-     .onFootprintMemoryStateDidChange { newState, oldState in
-     // Handle the memory state change event here
-     print("Memory state changed from \(oldState) to \(newState)")
-     // Perform actions based on the memory state change
-     }
-     */
+    /// A SwiftUI extension providing a convenient way to observe changes in the memory state of the app through the `onFootprintMemoryStateDidChange` modifier.
+    ///
+    /// ## Overview
+    ///
+    /// The `onFootprintMemoryStateDidChange` extension allows you to respond to changes in the app's memory state by providing a closure that is executed whenever the memory state transitions.
+    ///
+    /// ### Example Usage
+    ///
+    /// ```swift
+    /// Text("Hello, World!")
+    ///     .onFootprintMemoryStateDidChange { newState, oldState in
+    ///         print("Memory state changed from \(oldState) to \(newState)")
+    ///         // Perform actions based on the memory state change
+    ///     }
     @inlinable public func onFootprintMemoryStateDidChange(perform action: @escaping (_ state: Footprint.Memory.State, _ previousState: Footprint.Memory.State) -> Void) -> some View {
         return onReceive(NotificationCenter.default.publisher(for: Footprint.stateDidChangeNotification)) { note in
             if let state = note.userInfo?[Footprint.newMemoryStateKey] as? Footprint.Memory.State,
