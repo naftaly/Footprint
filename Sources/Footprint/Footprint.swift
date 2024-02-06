@@ -34,7 +34,8 @@ import Foundation
 @available(iOS 13.0, macOS 10.15, tvOS 13.0, watchOS 6.0, *)
 public class Footprint {
     
-    /// A structure that represents the different values required for easier memory hamlding throughout your apps lifetime.
+    /// A structure that represents the different values required for easier memory
+    /// handling throughout your apps lifetime.
     public struct Memory {
         
         /// State describes how close to app termination your app is based on memory.
@@ -45,10 +46,14 @@ public class Footprint {
             /// You're still doing ok, but start reducing memory usage.
             case warning
             
+            /// Reduce your memory footprint now.
+            case urgent
+            
             /// Time is of the essence, memory usage is very high, reduce your footprint.
             case critical
             
-            /// Termination is imminent. If you make it here, you haven't changed your memory usage behavior.
+            /// Termination is imminent. If you make it here, you haven't changed your 
+            /// memory usage behavior.
             /// Please revisit memory best practices and profile your app.
             case terminal
         }
@@ -89,7 +94,10 @@ public class Footprint {
 #endif
             
             usedRatio = Double(used)/Double(limit)
-            state = usedRatio < 0.30 ? .normal : usedRatio < 0.50 ? .warning : usedRatio < 0.85 ? .critical : .terminal
+            state = usedRatio < 0.25 ? .normal :
+                usedRatio < 0.50 ? .warning :
+                usedRatio < 0.75 ? .urgent :
+                usedRatio < 0.90 ? .critical : .terminal
         }
         
         private let compressed: Int
@@ -100,19 +108,22 @@ public class Footprint {
     
     /// The footprint instance that is used throughout the lifetime of your app.
     ///
-    /// Although the first call to this method can be made an any point, it is best to call this API as soon as possible at startup.
+    /// Although the first call to this method can be made an any point, 
+    /// it is best to call this API as soon as possible at startup.
     public static let shared = Footprint()
-    
     
     /// Notification name sent when the Footprint.Memory.state changes.
     ///
-    /// The notification userInfo dict will contain they `.oldMemoryStateKey` and `.newMemoryStateKey` keys.
+    /// The notification userInfo dict will contain they `.oldMemoryStateKey` 
+    /// and `.newMemoryStateKey` keys.
     public static let stateDidChangeNotification: NSNotification.Name = NSNotification.Name("FootprintMemoryStateDidChangeNotification")
     
-    /// Key for the previous value of the memory state in the the `.stateDidChangeNotification` userInfo object.
+    /// Key for the previous value of the memory state in the the 
+    /// `.stateDidChangeNotification` userInfo object.
     public static let oldMemoryStateKey: String = "oldMemoryState"
     
-    /// Key for the new value of the memory statein the the `.stateDidChangeNotification` userInfo object.
+    /// Key for the new value of the memory statein the the `.stateDidChangeNotification` 
+    /// userInfo object.
     public static let newMemoryStateKey: String = "newMemoryState"
     
     /// Returns the current memory structure.
@@ -120,7 +131,8 @@ public class Footprint {
         return Memory()
     }
     
-    /// Based on the current memory footprint, tells you if you should be able to allocate a certain amount of memory.
+    /// Based on the current memory footprint, tells you if you should be able to allocate 
+    /// a certain amount of memory.
     ///
     /// - Parameter bytes: The number of bytes you are interested in allocating.
     ///
@@ -137,7 +149,6 @@ public class Footprint {
             return _state
         }
     }
-    
     
     private init() {
         _state = Memory().state
@@ -205,11 +216,14 @@ import SwiftUI
 @available(iOS 13.0, macOS 10.15, tvOS 13.0, watchOS 6.0, *)
 extension View {
     
-    /// A SwiftUI extension providing a convenient way to observe changes in the memory state of the app through the `onFootprintMemoryStateDidChange` modifier.
+    /// A SwiftUI extension providing a convenient way to observe changes in the memory 
+    /// state of the app through the `onFootprintMemoryStateDidChange` modifier.
     ///
     /// ## Overview
     ///
-    /// The `onFootprintMemoryStateDidChange` extension allows you to respond to changes in the app's memory state by providing a closure that is executed whenever the memory state transitions.
+    /// The `onFootprintMemoryStateDidChange` extension allows you to respond 
+    /// to changes in the app's memory state by providing a closure that is executed
+    /// whenever the memory state transitions.
     ///
     /// ### Example Usage
     ///
