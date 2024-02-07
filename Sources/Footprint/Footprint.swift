@@ -52,7 +52,7 @@ public class Footprint {
             /// Time is of the essence, memory usage is very high, reduce your footprint.
             case critical
             
-            /// Termination is imminent. If you make it here, you haven't changed your 
+            /// Termination is imminent. If you make it here, you haven't changed your
             /// memory usage behavior.
             /// Please revisit memory best practices and profile your app.
             case terminal
@@ -70,6 +70,9 @@ public class Footprint {
         
         /// The state describing where your app sits within the scope of its memory limit.
         public let state: State
+        
+        /// The time at which this snapshot was taken.
+        public let timestamp: Double
         
         init() {
             var info = task_vm_info_data_t()
@@ -95,9 +98,10 @@ public class Footprint {
             
             usedRatio = Double(used)/Double(limit)
             state = usedRatio < 0.25 ? .normal :
-                usedRatio < 0.50 ? .warning :
-                usedRatio < 0.75 ? .urgent :
-                usedRatio < 0.90 ? .critical : .terminal
+            usedRatio < 0.50 ? .warning :
+            usedRatio < 0.75 ? .urgent :
+            usedRatio < 0.90 ? .critical : .terminal
+            timestamp = CACurrentMediaTime()
         }
         
         private let compressed: Int
@@ -108,50 +112,50 @@ public class Footprint {
     
     /// The footprint instance that is used throughout the lifetime of your app.
     ///
-    /// Although the first call to this method can be made an any point, 
+    /// Although the first call to this method can be made an any point,
     /// it is best to call this API as soon as possible at startup.
     public static let shared = Footprint()
     
     /// Notification name sent when the Footprint.Memory.state changes.
     ///
-    /// The notification userInfo dict will contain they `.oldMemoryStateKey` 
+    /// The notification userInfo dict will contain they `.oldMemoryStateKey`
     /// and `.newMemoryStateKey` keys.
     public static let stateDidChangeNotification: NSNotification.Name = NSNotification.Name("FootprintMemoryStateDidChangeNotification")
     
-    /// Key for the previous value of the memory state in the the 
+    /// Key for the previous value of the memory state in the the
     /// `.stateDidChangeNotification` userInfo object.
     public static let oldMemoryStateKey: String = "oldMemoryState"
     
-    /// Key for the new value of the memory statein the the `.stateDidChangeNotification` 
+    /// Key for the new value of the memory statein the the `.stateDidChangeNotification`
     /// userInfo object.
     public static let newMemoryStateKey: String = "newMemoryState"
     
-    /// Returns the current memory structure.
+    /// Returns a copy of the current memory structure.
     public var memory: Memory {
-        return Memory()
+        _memoryLock.lock()
+        defer { _memoryLock.unlock() }
+        return _memory
     }
     
-    /// Based on the current memory footprint, tells you if you should be able to allocate 
+    /// Based on the current memory footprint, tells you if you should be able to allocate
     /// a certain amount of memory.
     ///
     /// - Parameter bytes: The number of bytes you are interested in allocating.
     ///
     /// - returns: A `Bool` indicating if allocating `bytes` will likely work.
     public func canAllocate(bytes: UInt) -> Bool {
-        return bytes < Memory().remaining
+        return bytes < Footprint.Memory().remaining
     }
     
     /// The currently tracked memory state.
     public var state: Memory.State {
-        get {
-            _stateLock.lock()
-            defer { _stateLock.unlock() }
-            return _state
-        }
+        _memoryLock.lock()
+        defer { _memoryLock.unlock() }
+        return _memory.state
     }
     
     private init() {
-        _state = Memory().state
+        _memory = Memory()
         
         let timerSource = DispatchSource.makeTimerSource(queue: _queue)
         timerSource.schedule(deadline: .now(), repeating: .milliseconds(500), leeway: .milliseconds(500))
@@ -169,8 +173,8 @@ public class Footprint {
     }
     
     private func heartbeat() {
-        let memory = memory
-        sendObservers(for: memory.state)
+        let memory = Memory()
+        storeAndSendObservers(for: memory)
 #if targetEnvironment(simulator)
         // In the simulator there are no memory terminations,
         // so we fake one.
@@ -181,33 +185,53 @@ public class Footprint {
 #endif
     }
     
-    private func sendObservers(for state: Memory.State) {
-        _stateLock.lock()
-        defer { _stateLock.unlock() }
+    private func update(with memory: Memory) -> Memory? {
         
-        let oldState = _state
-        _state = state
+        _memoryLock.lock()
+        defer { _memoryLock.unlock() }
+        
+        // Verify that state changed...
+        guard _memory.state != memory.state else {
+            return nil
+        }
+        
+        // ... and enough time has passed to send out
+        // notifications again. Approximately the heartbeat interval.
+        guard memory.timestamp - _memory.timestamp >= Double(_heartbeatInterval)/1000.0 else {
+            print("Footprint.state changed but not enough time (\(memory.timestamp - _memory.timestamp)) has changed to deploy it.")
+            return nil
+        }
+        
+        print("Footprint.state changed after \(memory.timestamp - _memory.timestamp)")
+        let oldMemory = _memory
+        _memory = memory
+        
+        return oldMemory
+    }
+    
+    private func storeAndSendObservers(for memory: Memory) {
+        
+        guard let oldMemory = update(with: memory) else {
+            return
+        }
         
         // send all observers outside of the lock on the main queue.
         // main queue is important since most of us will want to
         // make changes that might touch the UI.
-        if oldState != state {
-            print("Footprint.state \(state)")
-            DispatchQueue.main.sync {
-                NotificationCenter.default.post(name: Footprint.stateDidChangeNotification, object: nil, userInfo: [
-                    Footprint.newMemoryStateKey: state,
-                    Footprint.oldMemoryStateKey: oldState
-                ])
-            }
+        print("Footprint.state \(memory.state)")
+        DispatchQueue.main.sync {
+            NotificationCenter.default.post(name: Footprint.stateDidChangeNotification, object: nil, userInfo: [
+                Footprint.newMemoryStateKey: memory.state,
+                Footprint.oldMemoryStateKey: oldMemory.state
+            ])
         }
-        
     }
     
     private let _queue = DispatchQueue(label: "com.bedroomcode.footprint.heartbeat.queue", qos: .utility, target: DispatchQueue.global(qos: .utility))
     private var _timerSource: DispatchSourceTimer? = nil
-    
-    private var _stateLock: NSLock = NSLock()
-    private var _state: Memory.State
+    private let _heartbeatInterval = 500 // milliseconds
+    private var _memoryLock: NSLock = NSLock()
+    private var _memory: Memory
 }
 
 #if canImport(SwiftUI)
@@ -216,12 +240,12 @@ import SwiftUI
 @available(iOS 13.0, macOS 10.15, tvOS 13.0, watchOS 6.0, *)
 extension View {
     
-    /// A SwiftUI extension providing a convenient way to observe changes in the memory 
+    /// A SwiftUI extension providing a convenient way to observe changes in the memory
     /// state of the app through the `onFootprintMemoryStateDidChange` modifier.
     ///
     /// ## Overview
     ///
-    /// The `onFootprintMemoryStateDidChange` extension allows you to respond 
+    /// The `onFootprintMemoryStateDidChange` extension allows you to respond
     /// to changes in the app's memory state by providing a closure that is executed
     /// whenever the memory state transitions.
     ///
