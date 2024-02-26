@@ -31,9 +31,9 @@ import Foundation
 ///`.warning` is 80%, `.critical` is 50%  and so on. This leads to your
 /// caches being purged based on the users behavior and the memory footprint
 /// used by your app has a much lower upper bound and much smaller drops.
-@available(iOS 13.0, macOS 10.15, tvOS 13.0, watchOS 6.0, *)
-public class Footprint {
-    
+@available(iOS 13.0, macOS 10.15, tvOS 13.0, watchOS 6.0, visionOS 1.0, *)
+final public class Footprint {
+
     /// A structure that represents the different values required for easier memory
     /// handling throughout your apps lifetime.
     public struct Memory {
@@ -71,8 +71,8 @@ public class Footprint {
         /// The state describing where your app sits within the scope of its memory limit.
         public let state: State
         
-        /// The time at which this snapshot was taken.
-        public let timestamp: Double
+        /// The time at which this snapshot was taken in monotonic milliseconds of uptime.
+        public let timestamp: UInt64
         
         init() {
             var info = task_vm_info_data_t()
@@ -101,7 +101,15 @@ public class Footprint {
             usedRatio < 0.50 ? .warning :
             usedRatio < 0.75 ? .urgent :
             usedRatio < 0.90 ? .critical : .terminal
-            timestamp = CACurrentMediaTime()
+            timestamp = {
+                let time = mach_absolute_time()
+                var timebaseInfo = mach_timebase_info_data_t()
+                guard mach_timebase_info(&timebaseInfo) == KERN_SUCCESS else {
+                    return 0
+                }
+                let timeInNanoseconds = time * UInt64(timebaseInfo.numer) / UInt64(timebaseInfo.denom)
+                return timeInNanoseconds / 1_000_000
+            }()
         }
         
         private let compressed: Int
@@ -197,7 +205,7 @@ public class Footprint {
         
         // ... and enough time has passed to send out
         // notifications again. Approximately the heartbeat interval.
-        guard memory.timestamp - _memory.timestamp >= Double(_heartbeatInterval)/1000.0 else {
+        guard memory.timestamp - _memory.timestamp >= _heartbeatInterval else {
             print("Footprint.state changed but not enough time (\(memory.timestamp - _memory.timestamp)) has changed to deploy it.")
             return nil
         }
