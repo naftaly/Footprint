@@ -32,7 +32,7 @@ import Foundation
 /// caches being purged based on the users behavior and the memory footprint
 /// used by your app has a much lower upper bound and much smaller drops.
 @available(iOS 13.0, macOS 10.15, tvOS 13.0, watchOS 6.0, visionOS 1.0, *)
-final public class Footprint {
+final public class Footprint : Sendable {
 
     /// A structure that represents the different values required for easier memory
     /// handling throughout your apps lifetime.
@@ -154,7 +154,7 @@ final public class Footprint {
     public func canAllocate(bytes: UInt) -> Bool {
         return bytes < Footprint.Memory().remaining
     }
-    
+
     /// The currently tracked memory state.
     public var state: Memory.State {
         _memoryLock.lock()
@@ -172,12 +172,23 @@ final public class Footprint {
         }
         timerSource.activate()
         _timerSource = timerSource
+        
+        let memorySource = DispatchSource.makeMemoryPressureSource(eventMask: [.all], queue: _queue)
+        memorySource.setEventHandler { [weak self] in
+            self?.heartbeat()
+        }
+        memorySource.activate()
+        _memoryPressureSource = memorySource
     }
     
     deinit {
         _timerSource?.suspend()
         _timerSource?.cancel()
         _timerSource = nil
+        
+        _memoryPressureSource?.suspend()
+        _memoryPressureSource?.cancel()
+        _memoryPressureSource = nil
     }
     
     private func heartbeat() {
@@ -240,6 +251,7 @@ final public class Footprint {
     private let _heartbeatInterval = 500 // milliseconds
     private var _memoryLock: NSLock = NSLock()
     private var _memory: Memory
+    private var _memoryPressureSource: DispatchSourceMemoryPressure? = nil
 }
 
 #if canImport(SwiftUI)
@@ -266,6 +278,7 @@ extension View {
     ///         // Perform actions based on the memory state change
     ///     }
     @inlinable public func onFootprintMemoryStateDidChange(perform action: @escaping (_ state: Footprint.Memory.State, _ previousState: Footprint.Memory.State) -> Void) -> some View {
+        _ = Footprint.shared // make sure it's running
         return onReceive(NotificationCenter.default.publisher(for: Footprint.stateDidChangeNotification)) { note in
             if let state = note.userInfo?[Footprint.newMemoryStateKey] as? Footprint.Memory.State,
                let prevState = note.userInfo?[Footprint.oldMemoryStateKey] as? Footprint.Memory.State {
