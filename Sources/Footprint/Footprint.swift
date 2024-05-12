@@ -77,35 +77,22 @@ final public class Footprint : @unchecked Sendable {
         /// The time at which this snapshot was taken in monotonic milliseconds of uptime.
         public let timestamp: UInt64
         
-        init(memoryPressure: State = .normal) {
-            var info = task_vm_info_data_t()
-            var infoCount = TASK_VM_INFO_COUNT
+        /// Initialize for the `Memory` structure.
+        init(used: Int, remaining: Int, compressed: Int = 0, pressure: State = .normal) {
             
-            let kerr = withUnsafeMutablePointer(to: &info) {
-                $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
-                    task_info(mach_task_self_, thread_flavor_t(TASK_VM_INFO), $0, &infoCount)
-                }
-            }
-            used = kerr == KERN_SUCCESS ? Int(info.phys_footprint) : 0
-            compressed = kerr == KERN_SUCCESS ? Int(info.compressed) : 0
-#if targetEnvironment(simulator)
-            // In the simulator `limit_bytes_remaining` returns -1
-            // which means we can't calculate limits.
-            // Due to this, we just set it to 4GB.
-            limit = Int(4e+9)
-            remaining = max(limit - used, 0)
-#else
-            remaining = kerr == KERN_SUCCESS ? Int(info.limit_bytes_remaining) : 0
-            limit = used + remaining
-#endif
+            self.used = used
+            self.remaining = remaining
+            self.limit = used + remaining
+            self.compressed = compressed
+            self.pressure = pressure
             
-            usedRatio = Double(used)/Double(limit)
-            state = usedRatio < 0.25 ? .normal :
-            usedRatio < 0.50 ? .warning :
-            usedRatio < 0.75 ? .urgent :
-            usedRatio < 0.90 ? .critical : .terminal
-            pressure = memoryPressure
-            timestamp = {
+            let usedRatio = Double(used)/Double(limit)
+            self.state = usedRatio < 0.25 ? .normal :
+                usedRatio < 0.50 ? .warning :
+                usedRatio < 0.75 ? .urgent :
+                usedRatio < 0.90 ? .critical : .terminal
+            
+            self.timestamp = {
                 let time = mach_absolute_time()
                 var timebaseInfo = mach_timebase_info_data_t()
                 guard mach_timebase_info(&timebaseInfo) == KERN_SUCCESS else {
@@ -117,9 +104,6 @@ final public class Footprint : @unchecked Sendable {
         }
         
         private let compressed: Int
-        private let usedRatio: Double
-        private let TASK_BASIC_INFO_COUNT = mach_msg_type_number_t(MemoryLayout<task_basic_info_data_t>.size /  MemoryLayout<UInt32>.size)
-        private let TASK_VM_INFO_COUNT = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<UInt32>.size)
     }
     
     /// The footprint instance that is used throughout the lifetime of your app.
@@ -168,7 +152,7 @@ final public class Footprint : @unchecked Sendable {
     ///
     /// - returns: A `Bool` indicating if allocating `bytes` will likely work.
     public func canAllocate(bytes: UInt) -> Bool {
-        return bytes < Footprint.Memory().remaining
+        return bytes < provideMemory().remaining
     }
 
     /// The currently tracked memory state.
@@ -185,8 +169,10 @@ final public class Footprint : @unchecked Sendable {
         return _memory.pressure
     }
     
-    private init() {
-        _memory = Memory()
+    private init(_ provider: MemoryProvider = DefaultMemoryProvider()) {
+        
+        _provider = provider
+        _memory = _provider.provide(.normal)
         
         let timerSource = DispatchSource.makeTimerSource(queue: _queue)
         timerSource.schedule(deadline: .now(), repeating: .milliseconds(500), leeway: .milliseconds(500))
@@ -215,7 +201,7 @@ final public class Footprint : @unchecked Sendable {
     }
     
     private func heartbeat() {
-        let memory = Memory(memoryPressure: currentPressureFromSource())
+        let memory = provideMemory()
         storeAndSendObservers(for: memory)
 #if targetEnvironment(simulator)
         // In the simulator there are no memory terminations,
@@ -225,6 +211,10 @@ final public class Footprint : @unchecked Sendable {
             _exit(EXIT_FAILURE)
         }
 #endif
+    }
+    
+    private func provideMemory() -> Memory {
+        _provider.provide(currentPressureFromSource())
     }
     
     private func currentPressureFromSource() -> Memory.State {
@@ -297,8 +287,16 @@ final public class Footprint : @unchecked Sendable {
     private var _timerSource: DispatchSourceTimer? = nil
     private let _heartbeatInterval = 500 // milliseconds
     private var _memoryLock: NSLock = NSLock()
-    private var _memory: Memory = Memory()
+    private let _provider: MemoryProvider
+    private var _memory: Memory
     private var _memoryPressureSource: DispatchSourceMemoryPressure? = nil
+}
+
+@available(iOS 13.0, macOS 10.15, tvOS 13.0, watchOS 6.0, visionOS 1.0, *)
+public extension Footprint {
+    protocol MemoryProvider {
+        func provide(_ pressure: Footprint.Memory.State) -> Footprint.Memory
+    }
 }
 
 #if canImport(SwiftUI)
