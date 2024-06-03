@@ -59,14 +59,14 @@ final public class Footprint : @unchecked Sendable {
         }
         
         /// The amount of app used memory. Equivalent to `task_vm_info_data_t.phys_footprint`.
-        public let used: Int
+        public let used: Int64
         
         /// The amount of memory remaining to the app. Equivalent to `task_vm_info_data_t.limit_bytes_remaining`
         /// or `os_proc_available_memory`.
-        public let remaining: Int
+        public let remaining: Int64
         
         /// The high watermark of memory bytes your app can use before being terminated.
-        public let limit: Int
+        public let limit: Int64
         
         /// The state describing where your app sits within the scope of its memory limit.
         public let state: State
@@ -78,7 +78,7 @@ final public class Footprint : @unchecked Sendable {
         public let timestamp: UInt64
         
         /// Initialize for the `Memory` structure.
-        init(used: Int, remaining: Int, compressed: Int = 0, pressure: State = .normal) {
+        init(used: Int64, remaining: Int64, compressed: Int64 = 0, pressure: State = .normal) {
             
             self.used = used
             self.remaining = remaining
@@ -103,7 +103,7 @@ final public class Footprint : @unchecked Sendable {
             }()
         }
         
-        private let compressed: Int
+        private let compressed: Int64
     }
     
     /// The footprint instance that is used throughout the lifetime of your app.
@@ -151,7 +151,7 @@ final public class Footprint : @unchecked Sendable {
     /// - Parameter bytes: The number of bytes you are interested in allocating.
     ///
     /// - returns: A `Bool` indicating if allocating `bytes` will likely work.
-    public func canAllocate(bytes: UInt) -> Bool {
+    public func canAllocate(bytes: UInt64) -> Bool {
         return bytes < provideMemory().remaining
     }
 
@@ -174,30 +174,27 @@ final public class Footprint : @unchecked Sendable {
         _provider = provider
         _memory = _provider.provide(.normal)
         
-        let timerSource = DispatchSource.makeTimerSource(queue: _queue)
-        timerSource.schedule(deadline: .now(), repeating: .milliseconds(500), leeway: .milliseconds(500))
-        timerSource.setEventHandler { [weak self] in
-            self?.heartbeat()
-        }
-        timerSource.activate()
-        _timerSource = timerSource
+        _timerSource = DispatchSource.makeTimerSource(queue: _queue)
+        _memoryPressureSource = DispatchSource.makeMemoryPressureSource(eventMask: [.all], queue: _queue)
         
-        let memorySource = DispatchSource.makeMemoryPressureSource(eventMask: [.all], queue: _queue)
-        memorySource.setEventHandler { [weak self] in
+        _timerSource.schedule(deadline: .now(), repeating: .milliseconds(500), leeway: .milliseconds(500))
+        _timerSource.setEventHandler { [weak self] in
             self?.heartbeat()
         }
-        memorySource.activate()
-        _memoryPressureSource = memorySource
+        _memoryPressureSource.setEventHandler { [weak self] in
+            self?.heartbeat()
+        }
+        
+        _timerSource.activate()
+        _memoryPressureSource.activate()
     }
     
     deinit {
-        _timerSource?.suspend()
-        _timerSource?.cancel()
-        _timerSource = nil
+        _timerSource.suspend()
+        _timerSource.cancel()
         
-        _memoryPressureSource?.suspend()
-        _memoryPressureSource?.cancel()
-        _memoryPressureSource = nil
+        _memoryPressureSource.suspend()
+        _memoryPressureSource.cancel()
     }
     
     private func heartbeat() {
@@ -218,13 +215,10 @@ final public class Footprint : @unchecked Sendable {
     }
     
     private func currentPressureFromSource() -> Memory.State {
-        guard let source = _memoryPressureSource else {
-            return .normal
-        }
-        if source.data.contains(.critical) {
+        if _memoryPressureSource.data.contains(.critical) {
             return .critical
         }
-        if source.data.contains(.warning) {
+        if _memoryPressureSource.data.contains(.warning) {
             return .warning
         }
         return .normal
@@ -284,19 +278,18 @@ final public class Footprint : @unchecked Sendable {
     }
     
     private let _queue = DispatchQueue(label: "com.bedroomcode.footprint.heartbeat.queue", qos: .utility, target: DispatchQueue.global(qos: .utility))
-    private var _timerSource: DispatchSourceTimer? = nil
+    private let _timerSource: DispatchSourceTimer
     private let _heartbeatInterval = 500 // milliseconds
-    private var _memoryLock: NSLock = NSLock()
     private let _provider: MemoryProvider
+    private let _memoryPressureSource: DispatchSourceMemoryPressure
+    
+    private let _memoryLock: NSLock = NSLock()
     private var _memory: Memory
-    private var _memoryPressureSource: DispatchSourceMemoryPressure? = nil
 }
 
 @available(iOS 13.0, macOS 10.15, tvOS 13.0, watchOS 6.0, visionOS 1.0, *)
-public extension Footprint {
-    protocol MemoryProvider {
-        func provide(_ pressure: Footprint.Memory.State) -> Footprint.Memory
-    }
+public protocol MemoryProvider {
+    func provide(_ pressure: Footprint.Memory.State) -> Footprint.Memory
 }
 
 #if canImport(SwiftUI)
