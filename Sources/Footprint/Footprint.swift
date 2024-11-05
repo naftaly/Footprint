@@ -127,21 +127,21 @@ public final class Footprint: @unchecked Sendable {
     /// Notification name sent when the Footprint.Memory.state and/or
     /// Footprint.Memory.pressure changes.
     ///
-    /// The notification userInfo dict will contain they `.oldMemoryKey`,
-    /// .newMemoryKey` and `.changesKey` keys.
+    /// The notification userInfo dict will contain the `.oldMemoryKey`,
+    /// `.newMemoryKey` and `.changesKey` keys.
     public static let memoryDidChangeNotification: NSNotification.Name = NSNotification.Name("FootprintMemoryDidChangeNotification")
 
     /// Key for the previous value of the memory state in the the
     /// `.stateDidChangeNotification` userInfo object.
-    /// Type is `Footprint.Memory`.
+    /// Value type is `Footprint.Memory`.
     public static let oldMemoryKey: String = "oldMemory"
 
-    /// Key for the new value of the memory statein the the `.stateDidChangeNotification`
-    /// userInfo object. Type is `Footprint.Memory`.
+    /// Key for the new value of the memory state in the the `.stateDidChangeNotification`
+    /// userInfo object. Value type is `Footprint.Memory`.
     public static let newMemoryKey: String = "newMemory"
 
     /// Key for the changes of the memory in the the `.stateDidChangeNotification`
-    /// userInfo object. Type is `Set<ChangeType>`
+    /// userInfo object. Value type is `Set<ChangeType>`
     public static let changesKey: String = "changes"
 
     /// Types of changes possible
