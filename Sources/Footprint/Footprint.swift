@@ -39,7 +39,7 @@ public final class Footprint: @unchecked Sendable {
     public struct Memory {
 
         /// State describes how close to app termination your app is based on memory.
-        public enum State: Comparable, CaseIterable {
+        public enum State: Int, Comparable, CaseIterable {
 
             /// Everything is good, no need to worry.
             case normal
@@ -57,7 +57,10 @@ public final class Footprint: @unchecked Sendable {
             /// memory usage behavior.
             /// Please revisit memory best practices and profile your app.
             case terminal
-
+            
+            public static func < (lhs: Self, rhs: Self) -> Bool {
+                lhs.rawValue < rhs.rawValue
+            }
             /// Init from String value
             public init?(_ value: String) {
                 for c in Self.allCases {
@@ -153,9 +156,7 @@ public final class Footprint: @unchecked Sendable {
 
     /// Returns a copy of the current memory structure.
     public var memory: Memory {
-        _memoryLock.lock()
-        defer { _memoryLock.unlock() }
-        return _memory
+        _memoryLock.withLock { _memory }
     }
 
     /// Based on the current memory footprint, tells you if you should be able to allocate
@@ -170,16 +171,12 @@ public final class Footprint: @unchecked Sendable {
 
     /// The currently tracked memory state.
     public var state: Memory.State {
-        _memoryLock.lock()
-        defer { _memoryLock.unlock() }
-        return _memory.state
+        _memoryLock.withLock { _memory.state }
     }
 
     /// The currently tracked memory pressure.
     public var pressure: Memory.State {
-        _memoryLock.lock()
-        defer { _memoryLock.unlock() }
-        return _memory.pressure
+        _memoryLock.withLock { _memory.pressure }
     }
 
     private init(_ provider: MemoryProvider = DefaultMemoryProvider()) {
@@ -240,12 +237,11 @@ public final class Footprint: @unchecked Sendable {
         return .normal
     }
 
-    internal func observe(_ action: @escaping (Memory) -> Void) {
-        _memoryLock.lock()
-        defer { _memoryLock.unlock() }
-        _observers.append(action)
-        let mem = _memory
-
+    public func observe(_ action: @escaping (Memory) -> Void) {
+        let mem = _memoryLock.withLock {
+            _observers.append(action)
+            return _memory
+        }
         DispatchQueue.global().async {
             action(mem)
         }
@@ -269,7 +265,7 @@ public final class Footprint: @unchecked Sendable {
         }
         // memory used changes only on ~1MB intevals
         // that's enough precision
-        if _memory.used - memory.used > 1000 {
+        if abs(_memory.used - memory.used) > 1000000 {
             changeSet.insert(.footprint)
         }
         guard !changeSet.isEmpty else {
@@ -317,9 +313,7 @@ public final class Footprint: @unchecked Sendable {
         if changeSet.contains(.footprint) {
             // copy behind the lock
             // deploy outside the lock
-            _memoryLock.lock()
-            let observers = _observers
-            _memoryLock.unlock()
+            let observers = _memoryLock.withLock { _observers }
             observers.forEach { $0(memory) }
         }
     }

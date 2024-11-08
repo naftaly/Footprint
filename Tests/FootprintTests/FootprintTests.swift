@@ -9,4 +9,7 @@ class FootprintTests: XCTestCase {
         XCTAssertGreaterThan(mem.limit, 0)
     }
     
+    func testName() {
+        XCTAssertEqual("\(Footprint.Memory.State.normal)", "normal")
+    }
 }
