@@ -275,11 +275,9 @@ public final class Footprint: @unchecked Sendable {
         // ... and enough time has passed to send out
         // notifications again. Approximately the heartbeat interval.
         guard memory.timestamp - _memory.timestamp >= _heartbeatInterval else {
-            print("Footprint.state changed but not enough time (\(memory.timestamp - _memory.timestamp)) has changed to deploy it.")
             return nil
         }
 
-        print("Footprint changed after \(memory.timestamp - _memory.timestamp)")
         let oldMemory = _memory
         _memory = memory
 
@@ -297,9 +295,6 @@ public final class Footprint: @unchecked Sendable {
         // make changes that might touch the UI.
         if changeSet.contains(.pressure) || changeSet.contains(.state) {
 
-            print("Footprint changes \(changeSet)")
-            print("Footprint.state \(memory.state)")
-            print("Footprint.pressure \(memory.pressure)")
             DispatchQueue.main.async {
                 NotificationCenter.default.post(name: Footprint.memoryDidChangeNotification, object: nil, userInfo: [
                     Footprint.newMemoryKey: memory,
