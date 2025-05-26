@@ -1,6 +1,6 @@
 Pod::Spec.new do |spec|
   spec.name         = "Footprint"
-  spec.version      = "1.0.3"
+  spec.version      = "1.0.6"
   spec.summary      = "Footprint is a Swift library that facilitates dynamic memory management."
   spec.description  = "Footprint is a Swift library that facilitates dynamic memory management in iOS apps"
   spec.homepage     = "https://github.com/naftaly/Footprint"
