@@ -6,6 +6,7 @@
 ///
 
 import Foundation
+import os
 
 /// The footprint manages snapshots of app memory limits and state,
 /// and notifies your app when these change.
@@ -82,7 +83,7 @@ public final class Footprint: @unchecked Sendable {
 
         /// The high watermark of memory bytes your app can use before being terminated.
         public let limit: Int64
-
+        
         /// The state describing where your app sits within the scope of its memory limit.
         public let state: State
 
@@ -93,7 +94,12 @@ public final class Footprint: @unchecked Sendable {
         public let timestamp: UInt64
 
         /// Initialize for the `Memory` structure.
-        init(used: Int64, remaining: Int64, compressed: Int64 = 0, pressure: State = .normal) {
+        init(
+            used: Int64,
+            remaining: Int64,
+            compressed: Int64 = 0,
+            pressure: State = .normal
+        ) {
 
             self.used = used
             self.remaining = remaining
@@ -108,13 +114,8 @@ public final class Footprint: @unchecked Sendable {
                 usedRatio < 0.90 ? .critical : .terminal
 
             self.timestamp = {
-                let time = mach_absolute_time()
-                var timebaseInfo = mach_timebase_info_data_t()
-                guard mach_timebase_info(&timebaseInfo) == KERN_SUCCESS else {
-                    return 0
-                }
-                let timeInNanoseconds = time * UInt64(timebaseInfo.numer) / UInt64(timebaseInfo.denom)
-                return timeInNanoseconds / 1_000_000
+                let timeInNanoseconds = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+                return timeInNanoseconds / NSEC_PER_MSEC
             }()
         }
 
@@ -158,7 +159,14 @@ public final class Footprint: @unchecked Sendable {
     public var memory: Memory {
         _memoryLock.withLock { _memory }
     }
-
+    
+    /// Returns an AsyncStream that pushes a _Memory_ as it changes.
+    public var memoryStream: AsyncStream<Memory> {
+        AsyncStream { continuation in
+            _memoryStreamContinuations.append(continuation)
+        }
+    }
+    
     /// Based on the current memory footprint, tells you if you should be able to allocate
     /// a certain amount of memory.
     ///
@@ -205,6 +213,8 @@ public final class Footprint: @unchecked Sendable {
 
         _memoryPressureSource.suspend()
         _memoryPressureSource.cancel()
+        
+        _memoryStreamContinuations.forEach { $0.finish() }
     }
 
     private func heartbeat() {
@@ -308,8 +318,11 @@ public final class Footprint: @unchecked Sendable {
         if changeSet.contains(.footprint) {
             // copy behind the lock
             // deploy outside the lock
-            let observers = _memoryLock.withLock { _observers }
+            let (observers, continuations) = _memoryLock.withLock {
+                (_observers, _memoryStreamContinuations)
+            }
             observers.forEach { $0(memory) }
+            continuations.forEach { $0.yield(memory) }
         }
     }
 
@@ -322,6 +335,7 @@ public final class Footprint: @unchecked Sendable {
     private var _observers: [(Memory) -> Void] = []
     private let _memoryLock: NSLock = NSLock()
     private var _memory: Memory
+    private var _memoryStreamContinuations: [AsyncStream<Memory>.Continuation] = []
 }
 
 @available(iOS 13.0, macOS 10.15, tvOS 13.0, watchOS 6.0, visionOS 1.0, *)
