@@ -15,12 +15,15 @@ jobs:
   test:
     name: Run Tests
     runs-on: macos-latest
+    strategy:
+      matrix:
+        sanitizer: ["address", "thread", ""]
 
     steps:
     - uses: actions/checkout@v4
       timeout-minutes: 2
 
-    - name: Run Unit Tests w/Asan
+    - name: Run Unit Tests, Sanitizer: ${{ matrix.sanitizer }}
       uses: mxcl/xcodebuild@v3
       timeout-minutes: 5
       with:
@@ -28,23 +31,4 @@ jobs:
         action: test
         platform: macOS
         arch: arm64
-        sanitizer: address
-
-    - name: Run Unit Tests w/Tsan
-      uses: mxcl/xcodebuild@v3
-      timeout-minutes: 5
-      with:
-        swift: 6.2
-        action: test
-        platform: macOS
-        arch: arm64
-        sanitizer: thread
-
-    - name: Run Unit Tests
-      uses: mxcl/xcodebuild@v3
-      timeout-minutes: 5
-      with:
-        swift: 6.2
-        action: test
-        platform: macOS
-        arch: arm64
+        sanitizer: ${{ matrix.sanitizer }}
