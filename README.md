@@ -1,7 +1,7 @@
 # Footprint
 
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Swift](https://img.shields.io/badge/Swift-5.0-orange.svg)](https://swift.org/)
+[![Swift](https://img.shields.io/badge/Swift-6.2-orange.svg)](https://swift.org/)
 [![Platform](https://img.shields.io/badge/platform-iOS%20%7C%20macOS%20%7C%20tvOS%20%7C%20watchOS%20%7C%20visionOS-lightgrey.svg)]()
 
 ## Overview
@@ -244,11 +244,37 @@ class MockMemoryProvider: MemoryProvider {
 }
 ```
 
+### Code Formatting
+
+This project uses [SwiftFormat](https://github.com/nicklockwood/SwiftFormat) to maintain consistent code style. The Swift version is specified in `.swift-version`.
+
+#### Installing SwiftFormat
+
+```bash
+# Using Homebrew
+brew install swiftformat
+```
+
+#### Running SwiftFormat
+
+```bash
+# Format all Swift files in the project
+swiftformat .
+
+# Format specific files
+swiftformat Sources/Footprint/Footprint.swift
+
+# Check formatting without making changes
+swiftformat --lint .
+```
+
+The formatter will automatically read the `.swift-version` file to apply the appropriate formatting rules for Swift 6.2.
+
 ## Requirements
 
 - iOS 13.0+, macOS 10.15+, tvOS 13.0+, watchOS 6.0+, visionOS 1.0+
-- Swift 5.0+
-- Xcode 11.0+
+- Swift 6.2+
+- Xcode 16.4+
 
 ## License
 
