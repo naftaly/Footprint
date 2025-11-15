@@ -23,7 +23,7 @@ jobs:
     - uses: actions/checkout@v4
       timeout-minutes: 2
 
-    - name: Run Unit Tests, Sanitizer: ${{ matrix.sanitizer }}
+    - name: Run Unit Tests, Sanitizer ${{ matrix.sanitizer }}
       uses: mxcl/xcodebuild@v3
       timeout-minutes: 5
       with:
