@@ -34,14 +34,11 @@ import os
 /// used by your app has a much lower upper bound and much smaller drops.
 @available(iOS 13.0, macOS 10.15, tvOS 13.0, watchOS 6.0, visionOS 1.0, *)
 public final class Footprint: @unchecked Sendable {
-
     /// A structure that represents the different values required for easier memory
     /// handling throughout your apps lifetime.
-    public struct Memory {
-
+    public struct Memory: Sendable {
         /// State describes how close to app termination your app is based on memory.
-        public enum State: Int, Comparable, CaseIterable {
-
+        public enum State: Int, Sendable, Comparable, CaseIterable {
             /// Everything is good, no need to worry.
             case normal
 
@@ -58,14 +55,15 @@ public final class Footprint: @unchecked Sendable {
             /// memory usage behavior.
             /// Please revisit memory best practices and profile your app.
             case terminal
-            
+
             public static func < (lhs: Self, rhs: Self) -> Bool {
                 lhs.rawValue < rhs.rawValue
             }
+
             /// Init from String value
             public init?(_ value: String) {
                 for c in Self.allCases {
-                    if "\(c)" == value {
+                    if value == "\(c)" {
                         self = c
                         return
                     }
@@ -83,7 +81,7 @@ public final class Footprint: @unchecked Sendable {
 
         /// The high watermark of memory bytes your app can use before being terminated.
         public let limit: Int64
-        
+
         /// The state describing where your app sits within the scope of its memory limit.
         public let state: State
 
@@ -100,20 +98,19 @@ public final class Footprint: @unchecked Sendable {
             compressed: Int64 = 0,
             pressure: State = .normal
         ) {
-
             self.used = used
             self.remaining = remaining
-            self.limit = used + remaining
+            limit = used + remaining
             self.compressed = compressed
             self.pressure = pressure
 
             let usedRatio = Double(used) / Double(limit)
-            self.state = usedRatio < 0.25 ? .normal :
+            state = usedRatio < 0.25 ? .normal :
                 usedRatio < 0.50 ? .warning :
                 usedRatio < 0.75 ? .urgent :
                 usedRatio < 0.90 ? .critical : .terminal
 
-            self.timestamp = {
+            timestamp = {
                 let timeInNanoseconds = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
                 return timeInNanoseconds / NSEC_PER_MSEC
             }()
@@ -133,7 +130,7 @@ public final class Footprint: @unchecked Sendable {
     ///
     /// The notification userInfo dict will contain the `.oldMemoryKey`,
     /// `.newMemoryKey` and `.changesKey` keys.
-    public static let memoryDidChangeNotification: NSNotification.Name = NSNotification.Name("FootprintMemoryDidChangeNotification")
+    public static let memoryDidChangeNotification: NSNotification.Name = .init("FootprintMemoryDidChangeNotification")
 
     /// Key for the previous value of the memory state in the the
     /// `.stateDidChangeNotification` userInfo object.
@@ -149,7 +146,7 @@ public final class Footprint: @unchecked Sendable {
     public static let changesKey: String = "changes"
 
     /// Types of changes possible
-    public enum ChangeType: Comparable {
+    public enum ChangeType: Comparable, Sendable {
         case state
         case pressure
         case footprint
@@ -159,14 +156,14 @@ public final class Footprint: @unchecked Sendable {
     public var memory: Memory {
         _memoryLock.withLock { _memory }
     }
-    
+
     /// Returns an AsyncStream that pushes a _Memory_ as it changes.
     public var memoryStream: AsyncStream<Memory> {
         AsyncStream { continuation in
             _memoryStreamContinuations.append(continuation)
         }
     }
-    
+
     /// Based on the current memory footprint, tells you if you should be able to allocate
     /// a certain amount of memory.
     ///
@@ -187,13 +184,14 @@ public final class Footprint: @unchecked Sendable {
         _memoryLock.withLock { _memory.pressure }
     }
 
-    private init(_ provider: MemoryProvider = DefaultMemoryProvider()) {
-
+    init(_ provider: MemoryProvider = DefaultMemoryProvider()) {
         _provider = provider
         _memory = _provider.provide(.normal)
+        _lastNotifiedMemory = _memory
 
         _timerSource = DispatchSource.makeTimerSource(queue: _queue)
         _memoryPressureSource = DispatchSource.makeMemoryPressureSource(eventMask: [.all], queue: _queue)
+        _observerNotificationSource = DispatchSource.makeUserDataAddSource(queue: _queue)
 
         _timerSource.schedule(deadline: .now(), repeating: .milliseconds(500), leeway: .milliseconds(500))
         _timerSource.setEventHandler { [weak self] in
@@ -202,9 +200,13 @@ public final class Footprint: @unchecked Sendable {
         _memoryPressureSource.setEventHandler { [weak self] in
             self?.heartbeat()
         }
+        _observerNotificationSource.setEventHandler { [weak self] in
+            self?.sendObservers()
+        }
 
         _timerSource.activate()
         _memoryPressureSource.activate()
+        _observerNotificationSource.activate()
     }
 
     deinit {
@@ -213,24 +215,27 @@ public final class Footprint: @unchecked Sendable {
 
         _memoryPressureSource.suspend()
         _memoryPressureSource.cancel()
-        
+
+        _observerNotificationSource.suspend()
+        _observerNotificationSource.cancel()
+
         _memoryStreamContinuations.forEach { $0.finish() }
     }
 
     private func heartbeat() {
         let memory = provideMemory()
-        storeAndSendObservers(for: memory)
+        coalesce(with: memory)
         #if targetEnvironment(simulator)
-        // In the simulator there are no memory terminations,
-        // so we fake one.
-        if memory.state == .terminal {
-            // Anything in this env var will enable this
-            if ProcessInfo.processInfo.environment["SIM_FOOTPRINT_OOM_TERM_ENABLED"] != nil {
-                print("Footprint: exiting due to the memory limit")
-                kill(getpid(), SIGTERM)
-                _exit(EXIT_FAILURE)
+            // In the simulator there are no memory terminations,
+            // so we fake one.
+            if memory.state == .terminal {
+                // Anything in this env var will enable this
+                if ProcessInfo.processInfo.environment["SIM_FOOTPRINT_OOM_TERM_ENABLED"] != nil {
+                    print("Footprint: exiting due to the memory limit")
+                    kill(getpid(), SIGTERM)
+                    _exit(EXIT_FAILURE)
+                }
             }
-        }
         #endif
     }
 
@@ -247,7 +252,7 @@ public final class Footprint: @unchecked Sendable {
         return .normal
     }
 
-    public func observe(_ action: @escaping (Memory) -> Void) {
+    public func observe(_ action: @escaping @Sendable (Memory) -> Void) {
         let mem = _memoryLock.withLock {
             _observers.append(action)
             return _memory
@@ -257,72 +262,80 @@ public final class Footprint: @unchecked Sendable {
         }
     }
 
-    private func update(with memory: Memory) -> (Memory, Set<ChangeType>)? {
-
-        _memoryLock.lock()
-        defer { _memoryLock.unlock() }
-
-        // Verify that state changed...
-        var changeSet: Set<ChangeType> = []
-
-        if _memory.state != memory.state {
-            changeSet.insert(.state)
-            changeSet.insert(.footprint)
-        }
-        if _memory.pressure != memory.pressure {
-            changeSet.insert(.pressure)
-            changeSet.insert(.footprint)
-        }
-        // memory used changes only on ~1MB intevals
-        // that's enough precision
-        if abs(_memory.used - memory.used) > 1000000 {
-            changeSet.insert(.footprint)
-        }
-        guard !changeSet.isEmpty else {
-            return nil
-        }
-
-        // ... and enough time has passed to send out
-        // notifications again. Approximately the heartbeat interval.
-        guard memory.timestamp - _memory.timestamp >= _heartbeatInterval else {
-            return nil
-        }
-
-        let oldMemory = _memory
-        _memory = memory
-
-        return (oldMemory, changeSet)
-    }
-
-    private func storeAndSendObservers(for memory: Memory) {
-
-        guard let (oldMemory, changeSet) = update(with: memory) else {
+    private func coalesce(with memory: Memory) {
+        // If nothing changed, then there's nothing to add
+        guard _memoryLock.withLock({
+            let hasChanges = (_memory.state != memory.state ||
+                _memory.pressure != memory.pressure ||
+                abs(_memory.used - memory.used) > 1_000_000) &&
+                memory.timestamp - _memory.timestamp >= _heartbeatInterval
+            if hasChanges {
+                _memory = memory
+            }
+            return hasChanges
+        }) else {
             return
         }
 
-        // send all observers outside of the lock on the main queue.
+        // Changes detected, trigger coalesced notification
+        _observerNotificationSource.add(data: 1)
+    }
+
+    private func sendObservers() {
+        // Compare last notified state with current state to calculate aggregate changes
+        _memoryLock.lock()
+        let oldMemory = _lastNotifiedMemory
+        let newMemory = _memory
+
+        // Calculate what changed since last notification
+        var changeSet: Set<ChangeType> = []
+        if oldMemory.state != newMemory.state {
+            changeSet.insert(.state)
+            changeSet.insert(.footprint)
+        }
+        if oldMemory.pressure != newMemory.pressure {
+            changeSet.insert(.pressure)
+            changeSet.insert(.footprint)
+        }
+        // memory used changes only on ~1MB intervals
+        if abs(oldMemory.used - newMemory.used) > 1_000_000 {
+            changeSet.insert(.footprint)
+        }
+
+        guard !changeSet.isEmpty else {
+            _memoryLock.unlock()
+            return
+        }
+
+        // Update last notified memory
+        _lastNotifiedMemory = newMemory
+
+        // Copy observers/continuations behind the lock
+        let observers = _observers
+        let continuations = _memoryStreamContinuations
+        _memoryLock.unlock()
+
+        // Send all observers outside of the lock on the main queue.
         // main queue is important since most of us will want to
         // make changes that might touch the UI.
         if changeSet.contains(.pressure) || changeSet.contains(.state) {
-
+            // Create isolated copies for the main actor closure
+            let notificationNewMemory = newMemory
+            let notificationOldMemory = oldMemory
+            let notificationChangeSet = changeSet
             DispatchQueue.main.async {
                 NotificationCenter.default.post(name: Footprint.memoryDidChangeNotification, object: nil, userInfo: [
-                    Footprint.newMemoryKey: memory,
-                    Footprint.oldMemoryKey: oldMemory,
-                    Footprint.changesKey: changeSet,
+                    Footprint.newMemoryKey: notificationNewMemory,
+                    Footprint.oldMemoryKey: notificationOldMemory,
+                    Footprint.changesKey: notificationChangeSet,
                 ])
             }
         }
 
-        // send footprint observers
+        // Send footprint observers
         if changeSet.contains(.footprint) {
-            // copy behind the lock
-            // deploy outside the lock
-            let (observers, continuations) = _memoryLock.withLock {
-                (_observers, _memoryStreamContinuations)
-            }
-            observers.forEach { $0(memory) }
-            continuations.forEach { $0.yield(memory) }
+            observers.forEach { $0(newMemory) }
+            continuations.forEach { $0.yield(newMemory) }
         }
     }
 
@@ -331,10 +344,12 @@ public final class Footprint: @unchecked Sendable {
     private let _heartbeatInterval = 500 // milliseconds
     private let _provider: MemoryProvider
     private let _memoryPressureSource: DispatchSourceMemoryPressure
+    private let _observerNotificationSource: DispatchSourceUserDataAdd
 
-    private var _observers: [(Memory) -> Void] = []
-    private let _memoryLock: NSLock = NSLock()
+    private var _observers: [@Sendable (Memory) -> Void] = []
+    private let _memoryLock: NSLock = .init()
     private var _memory: Memory
+    private var _lastNotifiedMemory: Memory
     private var _memoryStreamContinuations: [AsyncStream<Memory>.Continuation] = []
 }
 
@@ -344,68 +359,66 @@ public protocol MemoryProvider {
 }
 
 #if canImport(SwiftUI)
-import SwiftUI
+    import SwiftUI
 
-@available(iOS 13.0, macOS 10.15, tvOS 13.0, watchOS 6.0, visionOS 1.0, *)
-extension View {
+    @available(iOS 13.0, macOS 10.15, tvOS 13.0, watchOS 6.0, visionOS 1.0, *)
+    public extension View {
+        /// A SwiftUI extension providing a convenient way to observe changes in the memory
+        /// state of the app through the `onFootprintMemoryDidChange` modifier.
+        ///
+        /// ## Overview
+        ///
+        /// The `onFootprintMemoryDidChange` extension allows you to respond
+        /// to changes in the app's memory state and pressure by providing a closure that is executed
+        /// whenever the memory state transitions. You can also use specific modifiers for
+        /// state (`onFootprintMemoryStateDidChange`) or
+        /// pressure (`onFootprintMemoryPressureDidChange`).
+        ///
+        /// ### Example Usage
+        ///
+        /// ```swift
+        /// Text("Hello, World!")
+        ///     .onFootprintMemoryDidChange { newMemory, oldMemory, changeSet in
+        ///         print("Memory state changed from \(oldState) to \(newState)")
+        ///         // Perform actions based on the memory change
+        ///     }
+        @inlinable func onFootprintMemoryDidChange(perform action: @escaping (_ state: Footprint.Memory, _ previousState: Footprint.Memory, _ changes: Set<Footprint.ChangeType>) -> Void) -> some View {
+            _ = Footprint.shared // make sure it's running
+            return onReceive(NotificationCenter.default.publisher(for: Footprint.memoryDidChangeNotification)) { note in
+                if let changes = note.userInfo?[Footprint.changesKey] as? Set<Footprint.ChangeType>,
+                   let memory = note.userInfo?[Footprint.newMemoryKey] as? Footprint.Memory,
+                   let prevMemory = note.userInfo?[Footprint.oldMemoryKey] as? Footprint.Memory
+                {
+                    action(memory, prevMemory, changes)
+                }
+            }
+        }
 
-    /// A SwiftUI extension providing a convenient way to observe changes in the memory
-    /// state of the app through the `onFootprintMemoryDidChange` modifier.
-    ///
-    /// ## Overview
-    ///
-    /// The `onFootprintMemoryDidChange` extension allows you to respond
-    /// to changes in the app's memory state and pressure by providing a closure that is executed
-    /// whenever the memory state transitions. You can also use specific modifiers for
-    /// state (`onFootprintMemoryStateDidChange`) or
-    /// pressure (`onFootprintMemoryPressureDidChange`).
-    ///
-    /// ### Example Usage
-    ///
-    /// ```swift
-    /// Text("Hello, World!")
-    ///     .onFootprintMemoryDidChange { newMemory, oldMemory, changeSet in
-    ///         print("Memory state changed from \(oldState) to \(newState)")
-    ///         // Perform actions based on the memory change
-    ///     }
-    @inlinable public func onFootprintMemoryDidChange(perform action: @escaping (_ state: Footprint.Memory, _ previousState: Footprint.Memory, _ changes: Set<Footprint.ChangeType>) -> Void) -> some View {
-        _ = Footprint.shared // make sure it's running
-        return onReceive(NotificationCenter.default.publisher(for: Footprint.memoryDidChangeNotification)) { note in
-            if let changes = note.userInfo?[Footprint.changesKey] as? Set<Footprint.ChangeType>,
-               let memory = note.userInfo?[Footprint.newMemoryKey] as? Footprint.Memory,
-               let prevMemory = note.userInfo?[Footprint.oldMemoryKey] as? Footprint.Memory
-            {
-                action(memory, prevMemory, changes)
+        @inlinable func onFootprintMemoryStateDidChange(perform action: @escaping (_ state: Footprint.Memory.State, _ previousState: Footprint.Memory.State) -> Void) -> some View {
+            _ = Footprint.shared // make sure it's running
+            return onReceive(NotificationCenter.default.publisher(for: Footprint.memoryDidChangeNotification)) { note in
+                if let changes = note.userInfo?[Footprint.changesKey] as? Set<Footprint.ChangeType>,
+                   changes.contains(.state),
+                   let memory = note.userInfo?[Footprint.newMemoryKey] as? Footprint.Memory,
+                   let prevMemory = note.userInfo?[Footprint.oldMemoryKey] as? Footprint.Memory
+                {
+                    action(memory.state, prevMemory.state)
+                }
+            }
+        }
+
+        @inlinable func onFootprintMemoryPressureDidChange(perform action: @escaping (_ pressure: Footprint.Memory.State, _ previousPressure: Footprint.Memory.State) -> Void) -> some View {
+            _ = Footprint.shared // make sure it's running
+            return onReceive(NotificationCenter.default.publisher(for: Footprint.memoryDidChangeNotification)) { note in
+                if let changes = note.userInfo?[Footprint.changesKey] as? Set<Footprint.ChangeType>,
+                   changes.contains(.pressure),
+                   let memory = note.userInfo?[Footprint.newMemoryKey] as? Footprint.Memory,
+                   let prevMemory = note.userInfo?[Footprint.oldMemoryKey] as? Footprint.Memory
+                {
+                    action(memory.pressure, prevMemory.pressure)
+                }
             }
         }
     }
-
-    @inlinable public func onFootprintMemoryStateDidChange(perform action: @escaping (_ state: Footprint.Memory.State, _ previousState: Footprint.Memory.State) -> Void) -> some View {
-        _ = Footprint.shared // make sure it's running
-        return onReceive(NotificationCenter.default.publisher(for: Footprint.memoryDidChangeNotification)) { note in
-            if let changes = note.userInfo?[Footprint.changesKey] as? Set<Footprint.ChangeType>,
-               changes.contains(.state),
-               let memory = note.userInfo?[Footprint.newMemoryKey] as? Footprint.Memory,
-               let prevMemory = note.userInfo?[Footprint.oldMemoryKey] as? Footprint.Memory
-            {
-                action(memory.state, prevMemory.state)
-            }
-        }
-    }
-
-    @inlinable public func onFootprintMemoryPressureDidChange(perform action: @escaping (_ pressure: Footprint.Memory.State, _ previousPressure: Footprint.Memory.State) -> Void) -> some View {
-        _ = Footprint.shared // make sure it's running
-        return onReceive(NotificationCenter.default.publisher(for: Footprint.memoryDidChangeNotification)) { note in
-            if let changes = note.userInfo?[Footprint.changesKey] as? Set<Footprint.ChangeType>,
-               changes.contains(.pressure),
-               let memory = note.userInfo?[Footprint.newMemoryKey] as? Footprint.Memory,
-               let prevMemory = note.userInfo?[Footprint.oldMemoryKey] as? Footprint.Memory
-            {
-                action(memory.pressure, prevMemory.pressure)
-            }
-        }
-    }
-
-}
 
 #endif
