@@ -187,13 +187,15 @@ public final class Footprint: @unchecked Sendable {
         _memoryLock.withLock { _memory.pressure }
     }
 
-    private init(_ provider: MemoryProvider = DefaultMemoryProvider()) {
+    internal init(_ provider: MemoryProvider = DefaultMemoryProvider()) {
 
         _provider = provider
         _memory = _provider.provide(.normal)
+        _lastNotifiedMemory = _memory
 
         _timerSource = DispatchSource.makeTimerSource(queue: _queue)
         _memoryPressureSource = DispatchSource.makeMemoryPressureSource(eventMask: [.all], queue: _queue)
+        _observerNotificationSource = DispatchSource.makeUserDataAddSource(queue: _queue)
 
         _timerSource.schedule(deadline: .now(), repeating: .milliseconds(500), leeway: .milliseconds(500))
         _timerSource.setEventHandler { [weak self] in
@@ -202,9 +204,13 @@ public final class Footprint: @unchecked Sendable {
         _memoryPressureSource.setEventHandler { [weak self] in
             self?.heartbeat()
         }
+        _observerNotificationSource.setEventHandler { [weak self] in
+            self?.sendObservers()
+        }
 
         _timerSource.activate()
         _memoryPressureSource.activate()
+        _observerNotificationSource.activate()
     }
 
     deinit {
@@ -213,13 +219,16 @@ public final class Footprint: @unchecked Sendable {
 
         _memoryPressureSource.suspend()
         _memoryPressureSource.cancel()
-        
+
+        _observerNotificationSource.suspend()
+        _observerNotificationSource.cancel()
+
         _memoryStreamContinuations.forEach { $0.finish() }
     }
 
     private func heartbeat() {
         let memory = provideMemory()
-        storeAndSendObservers(for: memory)
+        coalesce(with: memory)
         #if targetEnvironment(simulator)
         // In the simulator there are no memory terminations,
         // so we fake one.
@@ -257,72 +266,77 @@ public final class Footprint: @unchecked Sendable {
         }
     }
 
-    private func update(with memory: Memory) -> (Memory, Set<ChangeType>)? {
+    private func coalesce(with memory: Memory) {
+        
+        // If nothing changed, then there's nothing to add
+        guard _memoryLock.withLock({
+            let hasChanges = (_memory.state != memory.state ||
+                _memory.pressure != memory.pressure ||
+                abs(_memory.used - memory.used) > 1000000) &&
+                memory.timestamp - _memory.timestamp >= _heartbeatInterval
+            if hasChanges {
+                _memory = memory
+            }
+            return hasChanges
+        }) else {
+            return
+        }
+        
+        // Changes detected, trigger coalesced notification
+        _observerNotificationSource.add(data: 1)
+    }
 
+    private func sendObservers() {
+        // Compare last notified state with current state to calculate aggregate changes
         _memoryLock.lock()
-        defer { _memoryLock.unlock() }
+        let oldMemory = _lastNotifiedMemory
+        let newMemory = _memory
 
-        // Verify that state changed...
+        // Calculate what changed since last notification
         var changeSet: Set<ChangeType> = []
-
-        if _memory.state != memory.state {
+        if oldMemory.state != newMemory.state {
             changeSet.insert(.state)
             changeSet.insert(.footprint)
         }
-        if _memory.pressure != memory.pressure {
+        if oldMemory.pressure != newMemory.pressure {
             changeSet.insert(.pressure)
             changeSet.insert(.footprint)
         }
-        // memory used changes only on ~1MB intevals
-        // that's enough precision
-        if abs(_memory.used - memory.used) > 1000000 {
+        // memory used changes only on ~1MB intervals
+        if abs(oldMemory.used - newMemory.used) > 1000000 {
             changeSet.insert(.footprint)
         }
+
         guard !changeSet.isEmpty else {
-            return nil
-        }
-
-        // ... and enough time has passed to send out
-        // notifications again. Approximately the heartbeat interval.
-        guard memory.timestamp - _memory.timestamp >= _heartbeatInterval else {
-            return nil
-        }
-
-        let oldMemory = _memory
-        _memory = memory
-
-        return (oldMemory, changeSet)
-    }
-
-    private func storeAndSendObservers(for memory: Memory) {
-
-        guard let (oldMemory, changeSet) = update(with: memory) else {
+            _memoryLock.unlock()
             return
         }
 
-        // send all observers outside of the lock on the main queue.
+        // Update last notified memory
+        _lastNotifiedMemory = newMemory
+
+        // Copy observers/continuations behind the lock
+        let observers = _observers
+        let continuations = _memoryStreamContinuations
+        _memoryLock.unlock()
+
+        // Send all observers outside of the lock on the main queue.
         // main queue is important since most of us will want to
         // make changes that might touch the UI.
         if changeSet.contains(.pressure) || changeSet.contains(.state) {
-
             DispatchQueue.main.async {
                 NotificationCenter.default.post(name: Footprint.memoryDidChangeNotification, object: nil, userInfo: [
-                    Footprint.newMemoryKey: memory,
+                    Footprint.newMemoryKey: newMemory,
                     Footprint.oldMemoryKey: oldMemory,
                     Footprint.changesKey: changeSet,
                 ])
             }
         }
 
-        // send footprint observers
+        // Send footprint observers
         if changeSet.contains(.footprint) {
-            // copy behind the lock
-            // deploy outside the lock
-            let (observers, continuations) = _memoryLock.withLock {
-                (_observers, _memoryStreamContinuations)
-            }
-            observers.forEach { $0(memory) }
-            continuations.forEach { $0.yield(memory) }
+            observers.forEach { $0(newMemory) }
+            continuations.forEach { $0.yield(newMemory) }
         }
     }
 
@@ -331,10 +345,12 @@ public final class Footprint: @unchecked Sendable {
     private let _heartbeatInterval = 500 // milliseconds
     private let _provider: MemoryProvider
     private let _memoryPressureSource: DispatchSourceMemoryPressure
+    private let _observerNotificationSource: DispatchSourceUserDataAdd
 
     private var _observers: [(Memory) -> Void] = []
     private let _memoryLock: NSLock = NSLock()
     private var _memory: Memory
+    private var _lastNotifiedMemory: Memory
     private var _memoryStreamContinuations: [AsyncStream<Memory>.Continuation] = []
 }
 
