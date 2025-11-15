@@ -1,5 +1,5 @@
-import XCTest
 @testable import Footprint
+import XCTest
 
 // MARK: - Mock Memory Provider
 
@@ -10,7 +10,7 @@ class MockMemoryProvider: MemoryProvider {
     var compressed: Int64 = 0
 
     func provide(_ pressure: Footprint.Memory.State) -> Footprint.Memory {
-        return Footprint.Memory(
+        Footprint.Memory(
             used: used,
             remaining: remaining,
             compressed: compressed,
@@ -23,7 +23,6 @@ class MockMemoryProvider: MemoryProvider {
 
 @available(iOS 13.0, macOS 10.15, tvOS 13.0, watchOS 6.0, visionOS 1.0, *)
 class FootprintTests: XCTestCase {
-
     // MARK: - Basic Memory Tests
 
     func testLimit() {

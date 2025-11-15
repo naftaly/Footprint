@@ -244,6 +244,32 @@ class MockMemoryProvider: MemoryProvider {
 }
 ```
 
+### Code Formatting
+
+This project uses [SwiftFormat](https://github.com/nicklockwood/SwiftFormat) to maintain consistent code style. The Swift version is specified in `.swift-version`.
+
+#### Installing SwiftFormat
+
+```bash
+# Using Homebrew
+brew install swiftformat
+```
+
+#### Running SwiftFormat
+
+```bash
+# Format all Swift files in the project
+swiftformat .
+
+# Format specific files
+swiftformat Sources/Footprint/Footprint.swift
+
+# Check formatting without making changes
+swiftformat --lint .
+```
+
+The formatter will automatically read the `.swift-version` file to apply the appropriate formatting rules for Swift 5.9.
+
 ## Requirements
 
 - iOS 13.0+, macOS 10.15+, tvOS 13.0+, watchOS 6.0+, visionOS 1.0+
