@@ -56,6 +56,8 @@ public final class Footprint: @unchecked Sendable {
             /// Please revisit memory best practices and profile your app.
             case terminal
 
+            /// Determines whether the left-hand state is ordered before the right-hand state.
+            /// - Returns: `true` if the left-hand state's raw value is less than the right-hand state's raw value, `false` otherwise.
             public static func < (lhs: Self, rhs: Self) -> Bool {
                 lhs.rawValue < rhs.rawValue
             }
@@ -222,6 +224,10 @@ public final class Footprint: @unchecked Sendable {
         _memoryStreamContinuations.forEach { $0.finish() }
     }
 
+    /// Requests an updated Memory snapshot from the provider and merges it into Footprint's internal state.
+    /// 
+    /// On simulator builds, if the resulting memory state is `.terminal` and the environment variable
+    /// `SIM_FOOTPRINT_OOM_TERM_ENABLED` is present, the process will be terminated to simulate an out‑of‑memory exit.
     private func heartbeat() {
         let memory = provideMemory()
         coalesce(with: memory)
@@ -243,6 +249,8 @@ public final class Footprint: @unchecked Sendable {
         _provider.provide(currentPressureFromSource())
     }
 
+    /// Returns the current memory pressure as a `Memory.State` based on the dispatch source's data flags.
+    /// - Returns: `.critical` if the memory pressure source contains `.critical`, `.warning` if it contains `.warning`, `.normal` otherwise.
     private func currentPressureFromSource() -> Memory.State {
         if _memoryPressureSource.data.contains(.critical) {
             return .critical
@@ -252,6 +260,8 @@ public final class Footprint: @unchecked Sendable {
         return .normal
     }
 
+    /// Registers an observer that will be notified when the memory snapshot changes and invokes it immediately with the current snapshot.
+    /// - Parameter action: A `Sendable` closure that receives the latest `Memory`. The closure is called whenever the memory changes and is invoked once immediately with the current snapshot.
     public func observe(_ action: @escaping @Sendable (Memory) -> Void) {
         let mem = _memoryLock.withLock {
             _observers.append(action)
@@ -262,6 +272,15 @@ public final class Footprint: @unchecked Sendable {
         }
     }
 
+    /// Evaluates a candidate memory snapshot and, if it represents a significant change, replaces the stored snapshot and schedules a coalesced observer notification.
+    ///
+    /// The new snapshot is accepted when any of the following are true and at least `_heartbeatInterval` milliseconds have elapsed since the last stored snapshot:
+    /// - memory state changed
+    /// - memory pressure changed
+    /// - used memory differs by more than 1,000,000 bytes
+    /// When accepted, the stored memory is updated and the observer notification source is signaled.
+    ///
+    /// - Parameter memory: The candidate `Memory` snapshot to consider for coalescing.
     private func coalesce(with memory: Memory) {
         // If nothing changed, then there's nothing to add
         guard _memoryLock.withLock({
@@ -281,6 +300,9 @@ public final class Footprint: @unchecked Sendable {
         _observerNotificationSource.add(data: 1)
     }
 
+    /// Notifies registered observers and async stream continuations about differences between the last-notified and current memory snapshots.
+    /// 
+    /// If no changes are detected, the method returns without side effects. When the memory `state` or `pressure` changes, it posts `Footprint.memoryDidChangeNotification` on the main queue with `Footprint.newMemoryKey`, `Footprint.oldMemoryKey`, and `Footprint.changesKey` in the notification `userInfo`. When the overall footprint changes, it invokes all registered observer closures with the new `Memory` and yields the new `Memory` to all async stream continuations. The method also updates the internal last-notified memory snapshot.
     private func sendObservers() {
         // Compare last notified state with current state to calculate aggregate changes
         _memoryLock.lock()
@@ -381,7 +403,12 @@ public protocol MemoryProvider {
         ///     .onFootprintMemoryDidChange { newMemory, oldMemory, changeSet in
         ///         print("Memory state changed from \(oldState) to \(newState)")
         ///         // Perform actions based on the memory change
-        ///     }
+        /// Calls the provided closure whenever Footprint reports a memory snapshot change.
+        /// 
+        /// This ensures `Footprint.shared` is initialized and invokes `action` with the new memory snapshot, the previous snapshot, and the set of change types when a memory change occurs.
+        /// - Parameters:
+        ///   - action: A closure invoked with the new `Footprint.Memory`, the previous `Footprint.Memory`, and a `Set<Footprint.ChangeType>` describing what changed.
+        /// - Returns: A view that subscribes to Footprint memory-change events and invokes `action` when changes are delivered.
         @inlinable func onFootprintMemoryDidChange(perform action: @escaping (_ state: Footprint.Memory, _ previousState: Footprint.Memory, _ changes: Set<Footprint.ChangeType>) -> Void) -> some View {
             _ = Footprint.shared // make sure it's running
             return onReceive(NotificationCenter.default.publisher(for: Footprint.memoryDidChangeNotification)) { note in
@@ -394,6 +421,10 @@ public protocol MemoryProvider {
             }
         }
 
+        /// Calls the provided closure when the Footprint memory state changes.
+        /// - Parameters:
+        ///   - action: A closure invoked with the new memory state and the previous memory state when a state change occurs.
+        /// - Returns: A view that triggers `action` whenever the memory state transitions to a different `Footprint.Memory.State`.
         @inlinable func onFootprintMemoryStateDidChange(perform action: @escaping (_ state: Footprint.Memory.State, _ previousState: Footprint.Memory.State) -> Void) -> some View {
             _ = Footprint.shared // make sure it's running
             return onReceive(NotificationCenter.default.publisher(for: Footprint.memoryDidChangeNotification)) { note in
@@ -407,6 +438,10 @@ public protocol MemoryProvider {
             }
         }
 
+        /// Calls `action` when the app's memory pressure state changes, providing the new and previous pressure values.
+        /// - Parameters:
+        ///   - action: Closure invoked when memory pressure changes; receives the current `Footprint.Memory.State` and the previous `Footprint.Memory.State`.
+        /// - Returns: A view that invokes `action` whenever the memory pressure changes.
         @inlinable func onFootprintMemoryPressureDidChange(perform action: @escaping (_ pressure: Footprint.Memory.State, _ previousPressure: Footprint.Memory.State) -> Void) -> some View {
             _ = Footprint.shared // make sure it's running
             return onReceive(NotificationCenter.default.publisher(for: Footprint.memoryDidChangeNotification)) { note in
