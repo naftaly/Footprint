@@ -36,9 +36,9 @@ import os
 public final class Footprint: @unchecked Sendable {
     /// A structure that represents the different values required for easier memory
     /// handling throughout your apps lifetime.
-    public struct Memory {
+    public struct Memory: Sendable {
         /// State describes how close to app termination your app is based on memory.
-        public enum State: Int, Comparable, CaseIterable {
+        public enum State: Int, Sendable, Comparable, CaseIterable {
             /// Everything is good, no need to worry.
             case normal
 
@@ -146,7 +146,7 @@ public final class Footprint: @unchecked Sendable {
     public static let changesKey: String = "changes"
 
     /// Types of changes possible
-    public enum ChangeType: Comparable {
+    public enum ChangeType: Comparable, Sendable {
         case state
         case pressure
         case footprint
@@ -252,7 +252,7 @@ public final class Footprint: @unchecked Sendable {
         return .normal
     }
 
-    public func observe(_ action: @escaping (Memory) -> Void) {
+    public func observe(_ action: @escaping @Sendable (Memory) -> Void) {
         let mem = _memoryLock.withLock {
             _observers.append(action)
             return _memory
@@ -319,11 +319,15 @@ public final class Footprint: @unchecked Sendable {
         // main queue is important since most of us will want to
         // make changes that might touch the UI.
         if changeSet.contains(.pressure) || changeSet.contains(.state) {
+            // Create isolated copies for the main actor closure
+            let notificationNewMemory = newMemory
+            let notificationOldMemory = oldMemory
+            let notificationChangeSet = changeSet
             DispatchQueue.main.async {
                 NotificationCenter.default.post(name: Footprint.memoryDidChangeNotification, object: nil, userInfo: [
-                    Footprint.newMemoryKey: newMemory,
-                    Footprint.oldMemoryKey: oldMemory,
-                    Footprint.changesKey: changeSet,
+                    Footprint.newMemoryKey: notificationNewMemory,
+                    Footprint.oldMemoryKey: notificationOldMemory,
+                    Footprint.changesKey: notificationChangeSet,
                 ])
             }
         }
@@ -342,7 +346,7 @@ public final class Footprint: @unchecked Sendable {
     private let _memoryPressureSource: DispatchSourceMemoryPressure
     private let _observerNotificationSource: DispatchSourceUserDataAdd
 
-    private var _observers: [(Memory) -> Void] = []
+    private var _observers: [@Sendable (Memory) -> Void] = []
     private let _memoryLock: NSLock = .init()
     private var _memory: Memory
     private var _lastNotifiedMemory: Memory
