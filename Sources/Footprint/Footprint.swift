@@ -228,7 +228,10 @@ public final class Footprint: @unchecked Sendable {
         _observerNotificationSource.suspend()
         _observerNotificationSource.cancel()
 
-        _memoryStreamContinuations.values.forEach { $0.finish() }
+        _memoryLock.withLock {
+            _memoryStreamContinuations.values.forEach { $0.finish() }
+            _memoryStreamContinuations.removeAll()
+        }
     }
 
     private func heartbeat() {
@@ -266,7 +269,7 @@ public final class Footprint: @unchecked Sendable {
             _observers.append(action)
             return _memory
         }
-        DispatchQueue.global().async {
+        _queue.async {
             action(mem)
         }
     }
