@@ -104,7 +104,7 @@ public final class Footprint: @unchecked Sendable {
             self.compressed = compressed
             self.pressure = pressure
 
-            let usedRatio = Double(used) / Double(limit)
+            let usedRatio = limit > 0 ? Double(used) / Double(limit) : 0
             state = usedRatio < 0.25 ? .normal :
                 usedRatio < 0.50 ? .warning :
                 usedRatio < 0.75 ? .urgent :
@@ -159,8 +159,17 @@ public final class Footprint: @unchecked Sendable {
 
     /// Returns an AsyncStream that pushes a _Memory_ as it changes.
     public var memoryStream: AsyncStream<Memory> {
-        AsyncStream { continuation in
-            _memoryStreamContinuations.append(continuation)
+        let id = UUID()
+        return AsyncStream { continuation in
+            continuation.onTermination = { [weak self] _ in
+                guard let self else { return }
+                self._memoryLock.withLock {
+                    _ = self._memoryStreamContinuations.removeValue(forKey: id)
+                }
+            }
+            _memoryLock.withLock {
+                _memoryStreamContinuations[id] = continuation
+            }
         }
     }
 
@@ -219,7 +228,10 @@ public final class Footprint: @unchecked Sendable {
         _observerNotificationSource.suspend()
         _observerNotificationSource.cancel()
 
-        _memoryStreamContinuations.forEach { $0.finish() }
+        _memoryLock.withLock {
+            _memoryStreamContinuations.values.forEach { $0.finish() }
+            _memoryStreamContinuations.removeAll()
+        }
     }
 
     private func heartbeat() {
@@ -232,7 +244,7 @@ public final class Footprint: @unchecked Sendable {
                 // Anything in this env var will enable this
                 if ProcessInfo.processInfo.environment["SIM_FOOTPRINT_OOM_TERM_ENABLED"] != nil {
                     print("Footprint: exiting due to the memory limit")
-                    kill(getpid(), SIGTERM)
+                    kill(getpid(), SIGKILL)
                     _exit(EXIT_FAILURE)
                 }
             }
@@ -257,7 +269,7 @@ public final class Footprint: @unchecked Sendable {
             _observers.append(action)
             return _memory
         }
-        DispatchQueue.global().async {
+        _queue.async {
             action(mem)
         }
     }
@@ -312,7 +324,7 @@ public final class Footprint: @unchecked Sendable {
 
         // Copy observers/continuations behind the lock
         let observers = _observers
-        let continuations = _memoryStreamContinuations
+        let continuations = Array(_memoryStreamContinuations.values)
         _memoryLock.unlock()
 
         // Send all observers outside of the lock on the main queue.
@@ -350,7 +362,7 @@ public final class Footprint: @unchecked Sendable {
     private let _memoryLock: NSLock = .init()
     private var _memory: Memory
     private var _lastNotifiedMemory: Memory
-    private var _memoryStreamContinuations: [AsyncStream<Memory>.Continuation] = []
+    private var _memoryStreamContinuations: [UUID: AsyncStream<Memory>.Continuation] = [:]
 }
 
 @available(iOS 13.0, macOS 10.15, tvOS 13.0, watchOS 6.0, visionOS 1.0, *)

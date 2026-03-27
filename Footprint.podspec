@@ -13,5 +13,5 @@ Pod::Spec.new do |spec|
   spec.visionos.deployment_target = "1.0"
   spec.source       = { :git => "https://github.com/naftaly/Footprint.git", :tag => "v#{spec.version}" }
   spec.source_files  = "Sources", "Sources/**/*.{h,m,swift}"
-  spec.swift_versions = "5.0"
+  spec.swift_versions = "6.2"
 end
