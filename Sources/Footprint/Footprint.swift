@@ -292,7 +292,8 @@ public final class Footprint: @unchecked Sendable {
         guard _memoryLock.withLock({
             let hasChanges = (_memory.state != memory.state ||
                 _memory.pressure != memory.pressure ||
-                abs(_memory.used - memory.used) > 1_000_000) &&
+                abs(_memory.used - memory.used) > 1_000_000 ||
+                abs(_memory.system.remaining - memory.system.remaining) > 1_000_000) &&
                 memory.timestamp - _memory.timestamp >= _heartbeatInterval
             if hasChanges {
                 _memory = memory
@@ -324,6 +325,9 @@ public final class Footprint: @unchecked Sendable {
         }
         // memory used changes only on ~1MB intervals
         if abs(oldMemory.used - newMemory.used) > 1_000_000 {
+            changeSet.insert(.footprint)
+        }
+        if abs(oldMemory.system.remaining - newMemory.system.remaining) > 1_000_000 {
             changeSet.insert(.footprint)
         }
 
