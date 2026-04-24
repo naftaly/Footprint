@@ -8,13 +8,16 @@ class MockMemoryProvider: MemoryProvider {
     var used: Int64 = 100_000_000 // 100 MB
     var remaining: Int64 = 900_000_000 // 900 MB
     var compressed: Int64 = 0
+    var systemLimit: Int64 = 8_000_000_000 // 8 GB
+    var systemRemaining: Int64 = 4_000_000_000 // 4 GB
 
     func provide(_ pressure: Footprint.Memory.State) -> Footprint.Memory {
         Footprint.Memory(
             used: used,
             remaining: remaining,
             compressed: compressed,
-            pressure: pressure
+            pressure: pressure,
+            system: Footprint.Memory.System(limit: systemLimit, remaining: systemRemaining)
         )
     }
 }
@@ -228,6 +231,24 @@ class FootprintTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(memory.remaining, 0)
         XCTAssertGreaterThan(memory.limit, 0)
         XCTAssertEqual(memory.limit, memory.used + memory.remaining)
+    }
+
+    func testSystemMemory() {
+        let memory = Footprint.shared.memory
+
+        XCTAssertGreaterThan(memory.system.limit, 0)
+        XCTAssertGreaterThanOrEqual(memory.system.remaining, 0)
+        XCTAssertLessThanOrEqual(memory.system.remaining, memory.system.limit)
+    }
+
+    func testSystemMemoryFromMockProvider() {
+        let mock = MockMemoryProvider()
+        mock.systemLimit = 8_000_000_000
+        mock.systemRemaining = 3_000_000_000
+        let memory = mock.provide(.normal)
+
+        XCTAssertEqual(memory.system.limit, 8_000_000_000)
+        XCTAssertEqual(memory.system.remaining, 3_000_000_000)
     }
 
     // MARK: - ChangeType Tests
