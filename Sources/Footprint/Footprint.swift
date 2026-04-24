@@ -91,18 +91,31 @@ public final class Footprint: @unchecked Sendable {
         /// The time at which this snapshot was taken in monotonic milliseconds of uptime.
         public let timestamp: UInt64
 
+        /// System-wide memory values independent of the app's memory limit.
+        public struct System: Sendable {
+            /// Total physical memory on the device.
+            public let limit: Int64
+            /// Currently free physical memory on the device.
+            public let remaining: Int64
+        }
+
+        /// System-wide memory information.
+        public let system: System
+
         /// Initialize for the `Memory` structure.
         init(
             used: Int64,
             remaining: Int64,
             compressed: Int64 = 0,
-            pressure: State = .normal
+            pressure: State = .normal,
+            system: System = System(limit: 0, remaining: 0)
         ) {
             self.used = used
             self.remaining = remaining
             limit = used + remaining
             self.compressed = compressed
             self.pressure = pressure
+            self.system = system
 
             let usedRatio = limit > 0 ? Double(used) / Double(limit) : 0
             state = usedRatio < 0.25 ? .normal :

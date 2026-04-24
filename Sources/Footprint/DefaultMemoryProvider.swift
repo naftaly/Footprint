@@ -32,15 +32,29 @@ extension Footprint {
             #else
             let remaining: Int64 = kerr == KERN_SUCCESS ? Int64(info.limit_bytes_remaining) : 0
             #endif
+
+            var vmStats = vm_statistics64_data_t()
+            var vmInfoCount = HOST_VM_INFO64_COUNT
+            let vmKerr = withUnsafeMutablePointer(to: &vmStats) {
+                $0.withMemoryRebound(to: integer_t.self, capacity: Int(vmInfoCount)) {
+                    host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, &vmInfoCount)
+                }
+            }
+            let systemLimit = Int64(ProcessInfo.processInfo.physicalMemory)
+            let systemRemaining: Int64 = vmKerr == KERN_SUCCESS ? Int64(UInt64(vmStats.free_count) * UInt64(info.page_size)) : 0
+            let system = Footprint.Memory.System(limit: systemLimit, remaining: systemRemaining)
+
             return Footprint.Memory(
                 used: used,
                 remaining: remaining,
                 compressed: compressed,
-                pressure: pressure
+                pressure: pressure,
+                system: system
             )
         }
 
         private let TASK_BASIC_INFO_COUNT = mach_msg_type_number_t(MemoryLayout<task_basic_info_data_t>.size / MemoryLayout<UInt32>.size)
         private let TASK_VM_INFO_COUNT = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<UInt32>.size)
+        private let HOST_VM_INFO64_COUNT = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<UInt32>.size)
     }
 }
