@@ -14,7 +14,7 @@ extension Footprint {
         func provide(_ pressure: Footprint.Memory.State = .normal) -> Footprint.Memory {
 
             var info = task_vm_info_data_t()
-            var infoCount = TASK_VM_INFO_COUNT
+            var infoCount = Self.TASK_VM_INFO_COUNT
 
             let kerr = withUnsafeMutablePointer(to: &info) {
                 $0.withMemoryRebound(to: integer_t.self, capacity: Int(infoCount)) {
@@ -35,37 +35,33 @@ extension Footprint {
             #endif
 
             var vmStats = vm_statistics64_data_t()
-            var vmInfoCount = HOST_VM_INFO64_COUNT
+            var vmInfoCount = Self.HOST_VM_INFO64_COUNT
             let vmKerr = withUnsafeMutablePointer(to: &vmStats) {
                 $0.withMemoryRebound(to: integer_t.self, capacity: Int(vmInfoCount)) {
-                    host_statistics64(hostPort, HOST_VM_INFO64, $0, &vmInfoCount)
+                    host_statistics64(Self.hostPort, HOST_VM_INFO64, $0, &vmInfoCount)
                 }
             }
             // Inactive pages still hold data but the kernel can reclaim them
             // without paging out, so they count as available alongside truly
             // free pages — matching what Activity Monitor reports as "free".
             let availablePages = UInt64(vmStats.free_count) + UInt64(vmStats.inactive_count)
-            let systemRemaining: Int64 = vmKerr == KERN_SUCCESS ? Int64(availablePages * pageSize) : 0
+            let systemRemaining: Int64 = vmKerr == KERN_SUCCESS ? Int64(availablePages * Self.pageSize) : 0
 
             return Footprint.Memory(
                 app: Footprint.Memory.App(used: used, remaining: remaining, compressed: compressed, pressure: pressure),
-                system: Footprint.Memory.System(limit: systemLimit, remaining: systemRemaining)
+                system: Footprint.Memory.System(limit: Self.systemLimit, remaining: systemRemaining)
             )
         }
 
-        private let hostPort: host_t = mach_host_self()
+        // All process-lifetime constants — the host port is shared, page
+        // size and physical memory are fixed at kernel boot, and the
+        // mach_msg counts are derived from compile-time type sizes.
+        private static let hostPort: host_t = mach_host_self()
+        private static let pageSize: UInt64 = UInt64(getpagesize())
+        private static let systemLimit: Int64 = Int64(ProcessInfo.processInfo.physicalMemory)
 
-        // The kernel fixes page size and total physical memory at boot;
-        // neither changes for the lifetime of the process, so cache once.
-        private let pageSize: UInt64 = UInt64(getpagesize())
-        private let systemLimit: Int64 = Int64(ProcessInfo.processInfo.physicalMemory)
-
-        deinit {
-            mach_port_deallocate(mach_task_self_, hostPort)
-        }
-
-        private let TASK_BASIC_INFO_COUNT = mach_msg_type_number_t(MemoryLayout<task_basic_info_data_t>.size / MemoryLayout<UInt32>.size)
-        private let TASK_VM_INFO_COUNT = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<UInt32>.size)
-        private let HOST_VM_INFO64_COUNT = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<UInt32>.size)
+        private static let TASK_BASIC_INFO_COUNT = mach_msg_type_number_t(MemoryLayout<task_basic_info_data_t>.size / MemoryLayout<UInt32>.size)
+        private static let TASK_VM_INFO_COUNT = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<UInt32>.size)
+        private static let HOST_VM_INFO64_COUNT = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<UInt32>.size)
     }
 }
