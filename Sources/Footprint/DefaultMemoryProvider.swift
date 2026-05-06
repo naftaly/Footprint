@@ -42,7 +42,11 @@ extension Footprint {
             }
             let pageSize: UInt64 = kerr == KERN_SUCCESS ? UInt64(info.page_size) : UInt64(getpagesize())
             let systemLimit = Int64(ProcessInfo.processInfo.physicalMemory)
-            let systemRemaining: Int64 = vmKerr == KERN_SUCCESS ? Int64(UInt64(vmStats.free_count) * pageSize) : 0
+            // Inactive pages still hold data but the kernel can reclaim them
+            // without paging out, so they count as available alongside truly
+            // free pages — matching what Activity Monitor reports as "free".
+            let availablePages = UInt64(vmStats.free_count) + UInt64(vmStats.inactive_count)
+            let systemRemaining: Int64 = vmKerr == KERN_SUCCESS ? Int64(availablePages * pageSize) : 0
 
             return Footprint.Memory(
                 app: Footprint.Memory.App(used: used, remaining: remaining, compressed: compressed, pressure: pressure),
