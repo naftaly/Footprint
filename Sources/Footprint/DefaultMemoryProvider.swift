@@ -43,7 +43,8 @@ extension Footprint {
             }
             // Inactive pages still hold data but the kernel can reclaim them
             // without paging out, so they count as available alongside truly
-            // free pages — matching what Activity Monitor reports as "free".
+            // free pages — this is the "available" / reclaimable figure,
+            // not the "free" number Activity Monitor breaks out separately.
             let availablePages = UInt64(vmStats.free_count) + UInt64(vmStats.inactive_count)
             let systemRemaining: Int64 = vmKerr == KERN_SUCCESS ? Int64(availablePages * Self.pageSize) : 0
 
