@@ -41,10 +41,9 @@ extension Footprint {
                     host_statistics64(Self.hostPort, HOST_VM_INFO64, $0, &vmInfoCount)
                 }
             }
-            // Inactive pages still hold data but the kernel can reclaim them
-            // without paging out, so they count as available alongside truly
-            // free pages — this is the "available" / reclaimable figure,
-            // not the "free" number Activity Monitor breaks out separately.
+            // Inactive pages still hold data, but the kernel can reclaim them
+            // without paging out, so we treat them as available system headroom
+            // alongside truly free pages.
             let availablePages = UInt64(vmStats.free_count) + UInt64(vmStats.inactive_count)
             let systemRemaining: Int64 = vmKerr == KERN_SUCCESS ? Int64(availablePages * Self.pageSize) : 0
 
