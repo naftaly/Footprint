@@ -26,7 +26,7 @@ extension Footprint {
             #if targetEnvironment(simulator)
             // In the simulator `limit_bytes_remaining` returns -1
             // which means we can't calculate limits.
-            // Due to this, we just set it to 4GB.
+            // Due to this, we just set it to 6GB.
             let limit: Int64 = 6_000_000_000
             let remaining: Int64 = max(limit - used, 0)
             #else
