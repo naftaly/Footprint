@@ -270,26 +270,6 @@ Footprint includes simulator-specific handling since memory limits work differen
 export SIM_FOOTPRINT_OOM_TERM_ENABLED=1
 ```
 
-### Custom Memory Providers
-
-For testing or custom scenarios, implement the `MemoryProvider` protocol:
-
-```swift
-class MockMemoryProvider: MemoryProvider {
-    func provide(_ pressure: Footprint.Memory.State) -> Footprint.Memory {
-        Footprint.Memory(
-            app: .init(
-                used: 100_000_000,
-                remaining: 900_000_000,
-                compressed: 0,
-                pressure: pressure
-            ),
-            system: .init(limit: 8_000_000_000, remaining: 4_000_000_000)
-        )
-    }
-}
-```
-
 ### Code Formatting
 
 This project uses [SwiftFormat](https://github.com/nicklockwood/SwiftFormat) to maintain consistent code style. The Swift version is specified in `.swift-version`.

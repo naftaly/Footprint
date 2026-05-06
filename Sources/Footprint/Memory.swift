@@ -90,10 +90,7 @@ public extension Footprint {
             /// The state of memory pressure (aka. how close the app is to being Jetsamed/Jetisoned).
             public let pressure: State
 
-            /// Construct an `App` snapshot. `limit` and `state` are derived from
-            /// `used + remaining`; `state` uses the same thresholds as
-            /// `Memory.State.from(used:limit:)`.
-            public init(used: Int64, remaining: Int64, compressed: Int64, pressure: State) {
+            init(used: Int64, remaining: Int64, compressed: Int64, pressure: State) {
                 self.used = used
                 self.remaining = remaining
                 self.compressed = compressed
@@ -113,10 +110,7 @@ public extension Footprint {
             /// physical memory limit.
             public let state: State
 
-            /// Construct a `System` snapshot. `state` is derived from
-            /// `(limit - remaining) / limit` using the same thresholds as
-            /// `Memory.State.from(used:limit:)`.
-            public init(limit: Int64, remaining: Int64) {
+            init(limit: Int64, remaining: Int64) {
                 self.limit = limit
                 self.remaining = remaining
                 state = State.from(used: max(limit - remaining, 0), limit: limit)
@@ -132,9 +126,7 @@ public extension Footprint {
         /// The time at which this snapshot was taken in monotonic milliseconds of uptime.
         public let timestamp: UInt64
 
-        /// Construct a `Memory` snapshot. `timestamp` is captured from the
-        /// monotonic uptime clock at the moment of construction.
-        public init(app: App, system: System) {
+        init(app: App, system: System) {
             self.app = app
             self.system = system
 
