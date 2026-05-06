@@ -5,17 +5,48 @@ import XCTest
 
 @available(iOS 13.0, macOS 10.15, tvOS 13.0, watchOS 6.0, visionOS 1.0, *)
 class MockMemoryProvider: MemoryProvider {
-    var used: Int64 = 100_000_000 // 100 MB
-    var remaining: Int64 = 900_000_000 // 900 MB
-    var compressed: Int64 = 0
-    var systemLimit: Int64 = 8_000_000_000 // 8 GB
-    var systemRemaining: Int64 = 4_000_000_000 // 4 GB
+    // Lock-guarded so tests can mutate from one thread while Footprint's
+    // heartbeat queue reads from another (Thread Sanitizer flags the
+    // unsynchronized version).
+    private let _lock = NSLock()
+    private var _used: Int64 = 100_000_000 // 100 MB
+    private var _remaining: Int64 = 900_000_000 // 900 MB
+    private var _compressed: Int64 = 0
+    private var _systemLimit: Int64 = 8_000_000_000 // 8 GB
+    private var _systemRemaining: Int64 = 4_000_000_000 // 4 GB
+
+    var used: Int64 {
+        get { _lock.withLock { _used } }
+        set { _lock.withLock { _used = newValue } }
+    }
+
+    var remaining: Int64 {
+        get { _lock.withLock { _remaining } }
+        set { _lock.withLock { _remaining = newValue } }
+    }
+
+    var compressed: Int64 {
+        get { _lock.withLock { _compressed } }
+        set { _lock.withLock { _compressed = newValue } }
+    }
+
+    var systemLimit: Int64 {
+        get { _lock.withLock { _systemLimit } }
+        set { _lock.withLock { _systemLimit = newValue } }
+    }
+
+    var systemRemaining: Int64 {
+        get { _lock.withLock { _systemRemaining } }
+        set { _lock.withLock { _systemRemaining = newValue } }
+    }
 
     func provide(_ pressure: Footprint.Memory.State) -> Footprint.Memory {
-        Footprint.Memory(
-            app: Footprint.Memory.App(used: used, remaining: remaining, compressed: compressed, pressure: pressure),
-            system: Footprint.Memory.System(limit: systemLimit, remaining: systemRemaining)
-        )
+        _lock.withLock {
+            Footprint.Memory(
+                app: Footprint.Memory.App(used: _used, remaining: _remaining, compressed: _compressed, pressure: pressure),
+                system: Footprint.Memory.System(limit: _systemLimit, remaining: _systemRemaining)
+            )
+        }
     }
 }
 
