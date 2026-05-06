@@ -66,7 +66,6 @@ extension Footprint {
         private static let pageSize: UInt64 = UInt64(getpagesize())
         private static let systemLimit: Int64 = Int64(ProcessInfo.processInfo.physicalMemory)
 
-        private static let TASK_BASIC_INFO_COUNT = mach_msg_type_number_t(MemoryLayout<task_basic_info_data_t>.size / MemoryLayout<UInt32>.size)
         private static let TASK_VM_INFO_COUNT = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<UInt32>.size)
         private static let HOST_VM_INFO64_COUNT = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<UInt32>.size)
     }
