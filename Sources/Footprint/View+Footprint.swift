@@ -1,9 +1,9 @@
-///
-///  View+Footprint.swift
-///  Footprint
-///
-///  Copyright (c) 2023 Alexander Cohen. All rights reserved.
-///
+//
+//  View+Footprint.swift
+//  Footprint
+//
+//  Copyright (c) 2023 Alexander Cohen. All rights reserved.
+//
 
 #if canImport(SwiftUI)
     import SwiftUI

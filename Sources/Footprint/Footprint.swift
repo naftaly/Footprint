@@ -1,9 +1,9 @@
-///
-///  Footprint.swift
-///  Footprint
-///
-///  Copyright (c) 2023 Alexander Cohen. All rights reserved.
-///
+//
+//  Footprint.swift
+//  Footprint
+//
+//  Copyright (c) 2023 Alexander Cohen. All rights reserved.
+//
 
 import Foundation
 
@@ -152,7 +152,7 @@ public extension Footprint {
         return AsyncStream { continuation in
             continuation.onTermination = { [weak self] _ in
                 guard let self else { return }
-                self._memoryLock.withLock {
+                _memoryLock.withLock {
                     _ = self._memoryStreamContinuations.removeValue(forKey: id)
                 }
             }
@@ -186,7 +186,7 @@ public extension Footprint {
 // MARK: - Internal coordination
 
 @available(iOS 13.0, macOS 10.15, tvOS 13.0, watchOS 6.0, visionOS 1.0, *)
-fileprivate extension Footprint {
+private extension Footprint {
     func heartbeat() {
         let memory = provideMemory()
         coalesce(with: memory)
@@ -291,7 +291,7 @@ fileprivate extension Footprint {
                 NotificationCenter.default.post(name: Footprint.memoryDidChangeNotification, object: nil, userInfo: [
                     Footprint.newMemoryKey: notificationNewMemory,
                     Footprint.oldMemoryKey: notificationOldMemory,
-                    Footprint.changesKey: notificationChangeSet,
+                    Footprint.changesKey: notificationChangeSet
                 ])
             }
         }

@@ -1,9 +1,9 @@
-///
-///  MemoryProvider.swift
-///  Footprint
-///
-///  Copyright (c) 2024 Alexander Cohen. All rights reserved.
-///
+//
+//  MemoryProvider.swift
+//  Footprint
+//
+//  Copyright (c) 2024 Alexander Cohen. All rights reserved.
+//
 
 import Foundation
 

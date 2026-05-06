@@ -1,0 +1,15 @@
+--swiftversion 6.2
+
+# No trailing commas on multi-line argument lists / collection literals.
+--trailingcommas never
+
+# Keep explicit type constructors like `UInt64(getpagesize())` — don't
+# rewrite them to `.init(...)` shorthand.
+--disable redundantType
+
+# Preserve underscore separators on numeric literals (`2_000`, `16_384`)
+# instead of stripping them on shorter numbers.
+--decimalgrouping ignore
+--hexgrouping ignore
+--binarygrouping ignore
+--octalgrouping ignore

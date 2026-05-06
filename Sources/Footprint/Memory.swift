@@ -1,9 +1,9 @@
-///
-///  Memory.swift
-///  Footprint
-///
-///  Copyright (c) 2023 Alexander Cohen. All rights reserved.
-///
+//
+//  Memory.swift
+//  Footprint
+//
+//  Copyright (c) 2023 Alexander Cohen. All rights reserved.
+//
 
 import Foundation
 
