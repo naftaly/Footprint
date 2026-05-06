@@ -145,9 +145,10 @@ ContentView()
 
 #### Headroom-Specific Changes
 
-System-wide headroom (device-level free physical memory) is independent of the
-app's own memory limit. Use this to back off when the device is under pressure
-even when the app still has room within its own budget.
+System-wide headroom (device-level available physical memory — free pages
+plus inactive pages the kernel can reclaim) is independent of the app's own
+memory limit. Use this to back off when the device is under pressure even
+when the app still has room within its own budget.
 
 ```swift
 ContentView()
