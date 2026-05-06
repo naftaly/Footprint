@@ -17,7 +17,7 @@ extension Footprint {
             var infoCount = TASK_VM_INFO_COUNT
 
             let kerr = withUnsafeMutablePointer(to: &info) {
-                $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
+                $0.withMemoryRebound(to: integer_t.self, capacity: Int(infoCount)) {
                     task_info(mach_task_self_, thread_flavor_t(TASK_VM_INFO), $0, &infoCount)
                 }
             }
