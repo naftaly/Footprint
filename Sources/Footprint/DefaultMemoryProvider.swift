@@ -55,13 +55,10 @@ extension Footprint {
 
         // All process-lifetime constants — page size and physical memory
         // are fixed at kernel boot, and the mach_msg counts are derived
-        // from compile-time type sizes.
-        //
-        // The host port reference is intentionally leaked: `mach_host_self`
-        // returns a send right that would normally be paired with a
-        // `mach_port_deallocate`, but we want it to live for the lifetime
-        // of the process. Releasing it from any per-instance teardown
-        // would invalidate the cached value for everything else.
+        // from compile-time type sizes. The host port send right is
+        // cached for the lifetime of the process; pairing it with a
+        // mach_port_deallocate would invalidate the cached value for
+        // anything else holding it.
         private static let hostPort: host_t = mach_host_self()
         private static let pageSize: UInt64 = UInt64(getpagesize())
         private static let systemLimit: Int64 = Int64(ProcessInfo.processInfo.physicalMemory)
