@@ -5,20 +5,48 @@ import XCTest
 
 @available(iOS 13.0, macOS 10.15, tvOS 13.0, watchOS 6.0, visionOS 1.0, *)
 class MockMemoryProvider: MemoryProvider {
-    var used: Int64 = 100_000_000 // 100 MB
-    var remaining: Int64 = 900_000_000 // 900 MB
-    var compressed: Int64 = 0
-    var systemLimit: Int64 = 8_000_000_000 // 8 GB
-    var systemRemaining: Int64 = 4_000_000_000 // 4 GB
+    // Lock-guarded so tests can mutate from one thread while Footprint's
+    // heartbeat queue reads from another (Thread Sanitizer flags the
+    // unsynchronized version).
+    private let _lock = NSLock()
+    private var _used: Int64 = 100_000_000 // 100 MB
+    private var _remaining: Int64 = 900_000_000 // 900 MB
+    private var _compressed: Int64 = 0
+    private var _systemLimit: Int64 = 8_000_000_000 // 8 GB
+    private var _systemRemaining: Int64 = 4_000_000_000 // 4 GB
+
+    var used: Int64 {
+        get { _lock.withLock { _used } }
+        set { _lock.withLock { _used = newValue } }
+    }
+
+    var remaining: Int64 {
+        get { _lock.withLock { _remaining } }
+        set { _lock.withLock { _remaining = newValue } }
+    }
+
+    var compressed: Int64 {
+        get { _lock.withLock { _compressed } }
+        set { _lock.withLock { _compressed = newValue } }
+    }
+
+    var systemLimit: Int64 {
+        get { _lock.withLock { _systemLimit } }
+        set { _lock.withLock { _systemLimit = newValue } }
+    }
+
+    var systemRemaining: Int64 {
+        get { _lock.withLock { _systemRemaining } }
+        set { _lock.withLock { _systemRemaining = newValue } }
+    }
 
     func provide(_ pressure: Footprint.Memory.State) -> Footprint.Memory {
-        Footprint.Memory(
-            used: used,
-            remaining: remaining,
-            compressed: compressed,
-            pressure: pressure,
-            system: Footprint.Memory.System(limit: systemLimit, remaining: systemRemaining)
-        )
+        _lock.withLock {
+            Footprint.Memory(
+                app: Footprint.Memory.App(used: _used, remaining: _remaining, compressed: _compressed, pressure: pressure),
+                system: Footprint.Memory.System(limit: _systemLimit, remaining: _systemRemaining)
+            )
+        }
     }
 }
 
@@ -30,7 +58,7 @@ class FootprintTests: XCTestCase {
 
     func testLimit() {
         let mem = Footprint.shared.memory
-        XCTAssertGreaterThan(mem.limit, 0)
+        XCTAssertGreaterThan(mem.app.limit, 0)
     }
 
     func testName() {
@@ -61,80 +89,100 @@ class FootprintTests: XCTestCase {
         XCTAssertEqual(allCases, [.normal, .warning, .urgent, .critical, .terminal])
     }
 
-    // MARK: - Memory Initialization and State Calculation Tests
+    // MARK: - App Initialization and State Calculation Tests
 
-    func testMemoryInitNormalState() {
+    private func makeApp(
+        used: Int64,
+        remaining: Int64,
+        pressure: Footprint.Memory.State = .normal
+    ) -> Footprint.Memory.App {
+        Footprint.Memory.App(used: used, remaining: remaining, compressed: 0, pressure: pressure)
+    }
+
+    func testAppInitNormalState() {
         // Used: 100 MB, Remaining: 900 MB, Total: 1 GB
         // Used ratio: 0.1 (10%)
-        let memory = Footprint.Memory(used: 100_000_000, remaining: 900_000_000)
+        let app = makeApp(used: 100_000_000, remaining: 900_000_000)
 
-        XCTAssertEqual(memory.used, 100_000_000)
-        XCTAssertEqual(memory.remaining, 900_000_000)
-        XCTAssertEqual(memory.limit, 1_000_000_000)
-        XCTAssertEqual(memory.state, .normal)
-        XCTAssertEqual(memory.pressure, .normal)
+        XCTAssertEqual(app.used, 100_000_000)
+        XCTAssertEqual(app.remaining, 900_000_000)
+        XCTAssertEqual(app.limit, 1_000_000_000)
+        XCTAssertEqual(app.state, .normal)
+        XCTAssertEqual(app.pressure, .normal)
     }
 
-    func testMemoryInitWarningState() {
+    func testAppInitWarningState() {
         // Used: 300 MB, Remaining: 700 MB, Total: 1 GB
         // Used ratio: 0.3 (30%)
-        let memory = Footprint.Memory(used: 300_000_000, remaining: 700_000_000)
+        let app = makeApp(used: 300_000_000, remaining: 700_000_000)
 
-        XCTAssertEqual(memory.state, .warning)
+        XCTAssertEqual(app.state, .warning)
     }
 
-    func testMemoryInitUrgentState() {
+    func testAppInitUrgentState() {
         // Used: 600 MB, Remaining: 400 MB, Total: 1 GB
         // Used ratio: 0.6 (60%)
-        let memory = Footprint.Memory(used: 600_000_000, remaining: 400_000_000)
+        let app = makeApp(used: 600_000_000, remaining: 400_000_000)
 
-        XCTAssertEqual(memory.state, .urgent)
+        XCTAssertEqual(app.state, .urgent)
     }
 
-    func testMemoryInitCriticalState() {
+    func testAppInitCriticalState() {
         // Used: 800 MB, Remaining: 200 MB, Total: 1 GB
         // Used ratio: 0.8 (80%)
-        let memory = Footprint.Memory(used: 800_000_000, remaining: 200_000_000)
+        let app = makeApp(used: 800_000_000, remaining: 200_000_000)
 
-        XCTAssertEqual(memory.state, .critical)
+        XCTAssertEqual(app.state, .critical)
     }
 
-    func testMemoryInitTerminalState() {
+    func testAppInitTerminalState() {
         // Used: 950 MB, Remaining: 50 MB, Total: 1 GB
         // Used ratio: 0.95 (95%)
-        let memory = Footprint.Memory(used: 950_000_000, remaining: 50_000_000)
+        let app = makeApp(used: 950_000_000, remaining: 50_000_000)
 
-        XCTAssertEqual(memory.state, .terminal)
+        XCTAssertEqual(app.state, .terminal)
     }
 
-    func testMemoryStateBoundaries() {
+    func testAppStateBoundaries() {
         // Test exact boundaries
-        let boundary25 = Footprint.Memory(used: 250_000_000, remaining: 750_000_000) // 25%
+        let boundary25 = makeApp(used: 250_000_000, remaining: 750_000_000) // 25%
         XCTAssertEqual(boundary25.state, .warning)
 
-        let boundary50 = Footprint.Memory(used: 500_000_000, remaining: 500_000_000) // 50%
+        let boundary50 = makeApp(used: 500_000_000, remaining: 500_000_000) // 50%
         XCTAssertEqual(boundary50.state, .urgent)
 
-        let boundary75 = Footprint.Memory(used: 750_000_000, remaining: 250_000_000) // 75%
+        let boundary75 = makeApp(used: 750_000_000, remaining: 250_000_000) // 75%
         XCTAssertEqual(boundary75.state, .critical)
 
-        let boundary90 = Footprint.Memory(used: 900_000_000, remaining: 100_000_000) // 90%
+        let boundary90 = makeApp(used: 900_000_000, remaining: 100_000_000) // 90%
         XCTAssertEqual(boundary90.state, .terminal)
     }
 
-    func testMemoryPressureInit() {
-        let memory = Footprint.Memory(
-            used: 100_000_000,
-            remaining: 900_000_000,
-            pressure: .critical
+    func testAppPressureInit() {
+        let app = makeApp(used: 100_000_000, remaining: 900_000_000, pressure: .critical)
+
+        XCTAssertEqual(app.pressure, .critical)
+        XCTAssertEqual(app.state, .normal) // State based on used ratio
+    }
+
+    func testAppCompressed() {
+        // `compressed` is a public, informational field; pages are also counted in `used`.
+        let app = Footprint.Memory.App(
+            used: 500_000_000,
+            remaining: 500_000_000,
+            compressed: 80_000_000,
+            pressure: .normal
         )
 
-        XCTAssertEqual(memory.pressure, .critical)
-        XCTAssertEqual(memory.state, .normal) // State based on used ratio
+        XCTAssertEqual(app.compressed, 80_000_000)
+        XCTAssertEqual(app.used, 500_000_000) // unchanged by compressed
     }
 
     func testMemoryTimestamp() {
-        let memory = Footprint.Memory(used: 100_000_000, remaining: 900_000_000)
+        let memory = Footprint.Memory(
+            app: makeApp(used: 100_000_000, remaining: 900_000_000),
+            system: .init(limit: 0, remaining: 0)
+        )
 
         XCTAssertGreaterThan(memory.timestamp, 0)
     }
@@ -146,10 +194,10 @@ class FootprintTests: XCTestCase {
         let memory = footprint.memory
 
         // Should not be able to allocate more than remaining
-        XCTAssertFalse(footprint.canAllocate(bytes: UInt64(memory.remaining) + 1000))
+        XCTAssertFalse(footprint.canAllocate(bytes: UInt64(memory.app.remaining) + 1000))
 
         // If we have remaining memory, should be able to allocate a small amount
-        if memory.remaining > 1000 {
+        if memory.app.remaining > 1000 {
             XCTAssertTrue(footprint.canAllocate(bytes: 1000))
         }
     }
@@ -159,7 +207,7 @@ class FootprintTests: XCTestCase {
         let memory = footprint.memory
 
         // Can only allocate 0 if there's at least some remaining memory
-        if memory.remaining > 0 {
+        if memory.app.remaining > 0 {
             XCTAssertTrue(footprint.canAllocate(bytes: 0))
         }
     }
@@ -171,7 +219,7 @@ class FootprintTests: XCTestCase {
         let expectation = XCTestExpectation(description: "Observer receives initial memory")
 
         footprint.observe { memory in
-            XCTAssertGreaterThan(memory.limit, 0)
+            XCTAssertGreaterThan(memory.app.limit, 0)
             expectation.fulfill()
         }
 
@@ -223,14 +271,22 @@ class FootprintTests: XCTestCase {
         XCTAssertTrue([.normal, .warning, .urgent, .critical, .terminal].contains(pressure))
     }
 
+    func testHeadroomProperty() {
+        let footprint = Footprint.shared
+        let headroom = footprint.headroom
+
+        XCTAssertTrue([.normal, .warning, .urgent, .critical, .terminal].contains(headroom))
+        XCTAssertEqual(headroom, footprint.memory.system.state)
+    }
+
     func testMemoryProperty() {
         let footprint = Footprint.shared
         let memory = footprint.memory
 
-        XCTAssertGreaterThan(memory.used, 0)
-        XCTAssertGreaterThanOrEqual(memory.remaining, 0)
-        XCTAssertGreaterThan(memory.limit, 0)
-        XCTAssertEqual(memory.limit, memory.used + memory.remaining)
+        XCTAssertGreaterThan(memory.app.used, 0)
+        XCTAssertGreaterThanOrEqual(memory.app.remaining, 0)
+        XCTAssertGreaterThan(memory.app.limit, 0)
+        XCTAssertEqual(memory.app.limit, memory.app.used + memory.app.remaining)
     }
 
     func testSystemMemory() {
@@ -251,17 +307,162 @@ class FootprintTests: XCTestCase {
         XCTAssertEqual(memory.system.remaining, 3_000_000_000)
     }
 
+    // MARK: - System State Tests
+
+    func testStateFromUsedAndLimit() {
+        XCTAssertEqual(Footprint.Memory.State.from(used: 100, limit: 1000), .normal) // 10%
+        XCTAssertEqual(Footprint.Memory.State.from(used: 300, limit: 1000), .warning) // 30%
+        XCTAssertEqual(Footprint.Memory.State.from(used: 600, limit: 1000), .urgent) // 60%
+        XCTAssertEqual(Footprint.Memory.State.from(used: 800, limit: 1000), .critical) // 80%
+        XCTAssertEqual(Footprint.Memory.State.from(used: 950, limit: 1000), .terminal) // 95%
+    }
+
+    func testStateFromZeroLimit() {
+        XCTAssertEqual(Footprint.Memory.State.from(used: 0, limit: 0), .normal)
+        XCTAssertEqual(Footprint.Memory.State.from(used: 100, limit: 0), .normal)
+    }
+
+    func testSystemMemoryStateNormal() {
+        // 1 GB used out of 8 GB → 12.5%
+        let system = Footprint.Memory.System(limit: 8_000_000_000, remaining: 7_000_000_000)
+        XCTAssertEqual(system.state, .normal)
+    }
+
+    func testSystemMemoryStateWarning() {
+        // 3 GB used out of 8 GB → 37.5%
+        let system = Footprint.Memory.System(limit: 8_000_000_000, remaining: 5_000_000_000)
+        XCTAssertEqual(system.state, .warning)
+    }
+
+    func testSystemMemoryStateUrgent() {
+        // 5 GB used out of 8 GB → 62.5%
+        let system = Footprint.Memory.System(limit: 8_000_000_000, remaining: 3_000_000_000)
+        XCTAssertEqual(system.state, .urgent)
+    }
+
+    func testSystemMemoryStateCritical() {
+        // 6.5 GB used out of 8 GB → 81.25%
+        let system = Footprint.Memory.System(limit: 8_000_000_000, remaining: 1_500_000_000)
+        XCTAssertEqual(system.state, .critical)
+    }
+
+    func testSystemMemoryStateTerminal() {
+        // 7.6 GB used out of 8 GB → 95%
+        let system = Footprint.Memory.System(limit: 8_000_000_000, remaining: 400_000_000)
+        XCTAssertEqual(system.state, .terminal)
+    }
+
+    func testSystemMemoryStateZeroLimit() {
+        let system = Footprint.Memory.System(limit: 0, remaining: 0)
+        XCTAssertEqual(system.state, .normal)
+    }
+
+    func testSystemMemoryStateRemainingExceedsLimit() {
+        // remaining > limit shouldn't produce a negative used or odd state
+        let system = Footprint.Memory.System(limit: 1_000_000_000, remaining: 2_000_000_000)
+        XCTAssertEqual(system.state, .normal)
+    }
+
     // MARK: - ChangeType Tests
 
     func testChangeTypeComparable() {
         // Test that ChangeType conforms to Comparable
         let stateChange: Footprint.ChangeType = .state
         let pressureChange: Footprint.ChangeType = .pressure
+        let headroomChange: Footprint.ChangeType = .headroom
         let footprintChange: Footprint.ChangeType = .footprint
 
         // Just verify they can be used in sets
-        let changes: Set<Footprint.ChangeType> = [stateChange, pressureChange, footprintChange]
-        XCTAssertEqual(changes.count, 3)
+        let changes: Set<Footprint.ChangeType> = [stateChange, pressureChange, headroomChange, footprintChange]
+        XCTAssertEqual(changes.count, 4)
+    }
+
+    // MARK: - Headroom Notification Flow
+
+    // MARK: - Available System Bytes
+
+    func testAvailableSystemBytesSumsFreeAndInactive() {
+        var stats = vm_statistics64_data_t()
+        stats.free_count = 100
+        stats.inactive_count = 50
+
+        let bytes = Footprint.DefaultMemoryProvider.availableSystemBytes(from: stats, pageSize: 16_384)
+
+        XCTAssertEqual(bytes, Int64(150) * 16_384)
+    }
+
+    func testAvailableSystemBytesIgnoresInUsePages() {
+        // Active, wired, and compressor pages are in use — they don't count
+        // toward available memory. (Speculative pages aren't tested
+        // separately because they're a subset of free_count.)
+        var stats = vm_statistics64_data_t()
+        stats.free_count = 10
+        stats.inactive_count = 20
+        stats.active_count = 2_000
+        stats.wire_count = 3_000
+        stats.compressor_page_count = 4_000
+
+        let bytes = Footprint.DefaultMemoryProvider.availableSystemBytes(from: stats, pageSize: 4_096)
+
+        XCTAssertEqual(bytes, Int64(30) * 4_096)
+    }
+
+    // MARK: - Lifecycle
+
+    func testFootprintDeallocationDoesNotTrap() {
+        // Regression: deinit used to suspend each dispatch source before
+        // cancelling, which traps in libdispatch when the source is then
+        // released. Repeated construct-and-release should be safe.
+        for _ in 0 ..< 50 {
+            _ = Footprint(MockMemoryProvider())
+        }
+    }
+
+    func testHeadroomChangeFiresNotification() {
+        let mock = MockMemoryProvider()
+        mock.systemLimit = 8_000_000_000
+        mock.systemRemaining = 7_000_000_000 // ~12.5% used → .normal
+
+        let footprint = Footprint(mock)
+
+        // Wait for the initial observer callback to confirm Footprint has
+        // latched the starting `.normal` system state. Relying on a fixed
+        // sleep is racy because the timer's leeway can push the first
+        // heartbeat out by up to 500ms.
+        let initialLatched = XCTestExpectation(description: "initial memory snapshot delivered")
+        footprint.observe { _ in initialLatched.fulfill() }
+        wait(for: [initialLatched], timeout: 2.0)
+
+        let expect = XCTestExpectation(description: "memoryDidChangeNotification fires with .headroom")
+        expect.assertForOverFulfill = false
+
+        let token = NotificationCenter.default.addObserver(
+            forName: Footprint.memoryDidChangeNotification,
+            object: nil,
+            queue: nil
+        ) { note in
+            // Filter to our mock's notifications - the limit+remaining combo
+            // is unique to this test.
+            guard let changes = note.userInfo?[Footprint.changesKey] as? Set<Footprint.ChangeType>,
+                  let memory = note.userInfo?[Footprint.newMemoryKey] as? Footprint.Memory,
+                  let prevMemory = note.userInfo?[Footprint.oldMemoryKey] as? Footprint.Memory,
+                  memory.system.limit == 8_000_000_000,
+                  memory.system.remaining == 200_000_000
+            else { return }
+
+            XCTAssertTrue(changes.contains(.headroom))
+            XCTAssertTrue(changes.contains(.footprint))
+            XCTAssertEqual(prevMemory.system.state, .normal)
+            XCTAssertEqual(memory.system.state, .terminal)
+            expect.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        // Drop free memory enough to push system state from .normal to .terminal.
+        mock.systemRemaining = 200_000_000 // ~97.5% used
+
+        wait(for: [expect], timeout: 3.0)
+        _ = footprint // keep alive until the notification arrives
     }
 
     // MARK: - AsyncStream Tests
@@ -274,7 +475,7 @@ class FootprintTests: XCTestCase {
         let task = Task {
             var count = 0
             for await memory in stream {
-                XCTAssertGreaterThan(memory.limit, 0)
+                XCTAssertGreaterThan(memory.app.limit, 0)
                 count += 1
                 if count >= 1 {
                     break
@@ -294,14 +495,14 @@ class FootprintTests: XCTestCase {
 
         let task1 = Task {
             for await memory in stream1 {
-                XCTAssertGreaterThan(memory.limit, 0)
+                XCTAssertGreaterThan(memory.app.limit, 0)
                 break
             }
         }
 
         let task2 = Task {
             for await memory in stream2 {
-                XCTAssertGreaterThan(memory.limit, 0)
+                XCTAssertGreaterThan(memory.app.limit, 0)
                 break
             }
         }

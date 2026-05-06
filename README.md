@@ -15,7 +15,7 @@ Traditional memory management on Apple platforms relies on memory warnings that 
 ### The Solution
 
 Footprint bridges this gap by providing:
-- **Complete memory visibility**: Track used, remaining, and total memory limits
+- **Complete memory visibility**: Track app-level used/remaining/limit and device-wide system memory
 - **Proactive state management**: Five distinct memory states from normal to terminal
 - **Behavioral adaptation**: Change your app's behavior before hitting critical memory limits
 - **Multiple observation patterns**: NotificationCenter, async streams, and SwiftUI modifiers
@@ -23,7 +23,7 @@ Footprint bridges this gap by providing:
 ## Key Features
 
 - **Five Memory States**: Navigate through normal, warning, urgent, critical, and terminal states based on memory usage ratios
-- **Dual Tracking**: Monitor both memory footprint and system memory pressure
+- **Three Tracking Axes**: App-level state, app-level memory pressure, and system-wide headroom
 - **Real-time Monitoring**: 500ms heartbeat with smart change detection
 - **SwiftUI Integration**: Convenient view modifiers for reactive UI updates
 - **Async Support**: Modern async/await patterns with AsyncStream
@@ -66,8 +66,11 @@ NotificationCenter.default.addObserver(
     else { return }
     
     if changes.contains(.state) {
-        print("Memory state changed from \(oldMemory.state) to \(newMemory.state)")
-        adaptBehavior(for: newMemory.state)
+        print("Memory state changed from \(oldMemory.app.state) to \(newMemory.app.state)")
+        adaptBehavior(for: newMemory.app.state)
+    }
+    if changes.contains(.headroom) {
+        print("System headroom changed from \(oldMemory.system.state) to \(newMemory.system.state)")
     }
 }
 ```
@@ -76,9 +79,9 @@ NotificationCenter.default.addObserver(
 
 ```swift
 Footprint.shared.observe { memory in
-    print("Current memory state: \(memory.state)")
-    print("Used: \(ByteCountFormatter.string(fromByteCount: memory.used, countStyle: .memory))")
-    print("Remaining: \(ByteCountFormatter.string(fromByteCount: memory.remaining, countStyle: .memory))")
+    print("Current memory state: \(memory.app.state)")
+    print("Used: \(ByteCountFormatter.string(fromByteCount: memory.app.used, countStyle: .memory))")
+    print("Remaining: \(ByteCountFormatter.string(fromByteCount: memory.app.remaining, countStyle: .memory))")
 }
 ```
 
@@ -100,10 +103,13 @@ Task {
 Text("Memory Status: \(memoryState)")
     .onFootprintMemoryDidChange { newMemory, oldMemory, changes in
         if changes.contains(.state) {
-            updateCachePolicy(for: newMemory.state)
+            updateCachePolicy(for: newMemory.app.state)
         }
         if changes.contains(.pressure) {
-            handleMemoryPressure(newMemory.pressure)
+            handleMemoryPressure(newMemory.app.pressure)
+        }
+        if changes.contains(.headroom) {
+            adaptForSystemHeadroom(newMemory.system.state)
         }
     }
 ```
@@ -137,6 +143,22 @@ ContentView()
     }
 ```
 
+#### Headroom-Specific Changes
+
+System-wide headroom (device-level available physical memory — free pages
+plus inactive pages the kernel can reclaim) is independent of the app's own
+memory limit. Use this to back off when the device is under pressure even
+when the app still has room within its own budget.
+
+```swift
+ContentView()
+    .onFootprintMemoryHeadroomDidChange { newHeadroom, oldHeadroom in
+        if newHeadroom >= .urgent {
+            pauseBackgroundPrefetch()
+        }
+    }
+```
+
 ### Memory Information
 
 Access current memory state and information:
@@ -144,12 +166,29 @@ Access current memory state and information:
 ```swift
 let memory = Footprint.shared.memory
 
-print("Used: \(memory.used) bytes")
-print("Remaining: \(memory.remaining) bytes") 
-print("Limit: \(memory.limit) bytes")
-print("State: \(memory.state)")
-print("Pressure: \(memory.pressure)")
+// App-specific memory (your app's slice).
+print("Used: \(memory.app.used) bytes")
+print("Remaining: \(memory.app.remaining) bytes")
+print("Limit: \(memory.app.limit) bytes")
+print("Compressed: \(memory.app.compressed) bytes") // already counted in `used`
+print("State: \(memory.app.state)")
+print("Pressure: \(memory.app.pressure)")
+
+// System-wide memory (the whole device).
+print("System limit: \(memory.system.limit) bytes")
+print("System remaining: \(memory.system.remaining) bytes")
+print("System state: \(memory.system.state)")
+
 print("Timestamp: \(memory.timestamp)")
+```
+
+`Footprint.shared` also exposes `state`, `pressure`, and `headroom` shortcuts
+that read directly from the latest snapshot:
+
+```swift
+let appState = Footprint.shared.state         // memory.app.state
+let appPressure = Footprint.shared.pressure   // memory.app.pressure
+let systemHeadroom = Footprint.shared.headroom // memory.system.state
 ```
 
 ### Memory Allocation Planning
@@ -187,7 +226,7 @@ class ImageCache {
     
     init() {
         Footprint.shared.observe { [weak self] memory in
-            self?.adjustCacheSize(for: memory.state)
+            self?.adjustCacheSize(for: memory.app.state)
         }
     }
     
@@ -230,18 +269,6 @@ Footprint includes simulator-specific handling since memory limits work differen
 ```bash
 # Enable simulated out-of-memory termination in simulator
 export SIM_FOOTPRINT_OOM_TERM_ENABLED=1
-```
-
-### Custom Memory Providers
-
-For testing or custom scenarios, implement the `MemoryProvider` protocol:
-
-```swift
-class MockMemoryProvider: MemoryProvider {
-    func provide(_ pressure: Footprint.Memory.State) -> Footprint.Memory {
-        // Return custom memory values for testing
-    }
-}
 ```
 
 ### Code Formatting
