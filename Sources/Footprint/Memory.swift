@@ -107,7 +107,8 @@ public extension Footprint {
         public struct System: Sendable {
             /// Total physical memory on the device.
             public let limit: Int64
-            /// Currently free physical memory on the device.
+            /// Currently available physical memory on the device — free pages
+            /// plus inactive pages the kernel can reclaim without paging out.
             public let remaining: Int64
             /// The state describing where the device sits within the scope of its
             /// physical memory limit.

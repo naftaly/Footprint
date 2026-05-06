@@ -41,16 +41,24 @@ extension Footprint {
                     host_statistics64(Self.hostPort, HOST_VM_INFO64, $0, &vmInfoCount)
                 }
             }
-            // Inactive pages still hold data, but the kernel can reclaim them
-            // without paging out, so we treat them as available system headroom
-            // alongside truly free pages.
-            let availablePages = UInt64(vmStats.free_count) + UInt64(vmStats.inactive_count)
-            let systemRemaining: Int64 = vmKerr == KERN_SUCCESS ? Int64(availablePages * Self.pageSize) : 0
+            let systemRemaining: Int64 = vmKerr == KERN_SUCCESS
+                ? Self.availableSystemBytes(from: vmStats, pageSize: Self.pageSize)
+                : 0
 
             return Footprint.Memory(
                 app: Footprint.Memory.App(used: used, remaining: remaining, compressed: compressed, pressure: pressure),
                 system: Footprint.Memory.System(limit: Self.systemLimit, remaining: systemRemaining)
             )
+        }
+
+        // Inactive pages still hold data, but the kernel can reclaim them
+        // without paging out, so we treat them as available system headroom
+        // alongside truly free pages. Speculative and other categories are
+        // intentionally excluded — they're either active data or fast-path
+        // caches the kernel doesn't promise to free.
+        static func availableSystemBytes(from stats: vm_statistics64_data_t, pageSize: UInt64) -> Int64 {
+            let pages = UInt64(stats.free_count) + UInt64(stats.inactive_count)
+            return Int64(pages * pageSize)
         }
 
         // All process-lifetime constants — page size and physical memory
