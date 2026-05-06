@@ -40,8 +40,6 @@ extension Footprint {
                     host_statistics64(hostPort, HOST_VM_INFO64, $0, &vmInfoCount)
                 }
             }
-            let pageSize = UInt64(getpagesize())
-            let systemLimit = Int64(ProcessInfo.processInfo.physicalMemory)
             // Inactive pages still hold data but the kernel can reclaim them
             // without paging out, so they count as available alongside truly
             // free pages — matching what Activity Monitor reports as "free".
@@ -55,6 +53,11 @@ extension Footprint {
         }
 
         private let hostPort: host_t = mach_host_self()
+
+        // The kernel fixes page size and total physical memory at boot;
+        // neither changes for the lifetime of the process, so cache once.
+        private let pageSize: UInt64 = UInt64(getpagesize())
+        private let systemLimit: Int64 = Int64(ProcessInfo.processInfo.physicalMemory)
 
         deinit {
             mach_port_deallocate(mach_task_self_, hostPort)
