@@ -14,7 +14,7 @@ extension Footprint {
         func provide(_ pressure: Footprint.Memory.State = .normal) -> Footprint.Memory {
 
             var info = task_vm_info_data_t()
-            var infoCount = Self.TASK_VM_INFO_COUNT
+            var infoCount = Self.taskVMInfoCount
 
             let kerr = withUnsafeMutablePointer(to: &info) {
                 $0.withMemoryRebound(to: integer_t.self, capacity: Int(infoCount)) {
@@ -35,7 +35,7 @@ extension Footprint {
             #endif
 
             var vmStats = vm_statistics64_data_t()
-            var vmInfoCount = Self.HOST_VM_INFO64_COUNT
+            var vmInfoCount = Self.hostVMInfo64Count
             let vmKerr = withUnsafeMutablePointer(to: &vmStats) {
                 $0.withMemoryRebound(to: integer_t.self, capacity: Int(vmInfoCount)) {
                     host_statistics64(Self.hostPort, HOST_VM_INFO64, $0, &vmInfoCount)
@@ -63,7 +63,7 @@ extension Footprint {
         private static let pageSize: UInt64 = UInt64(getpagesize())
         private static let systemLimit: Int64 = Int64(ProcessInfo.processInfo.physicalMemory)
 
-        private static let TASK_VM_INFO_COUNT = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<UInt32>.size)
-        private static let HOST_VM_INFO64_COUNT = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<UInt32>.size)
+        private static let taskVMInfoCount = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<UInt32>.size)
+        private static let hostVMInfo64Count = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<UInt32>.size)
     }
 }
