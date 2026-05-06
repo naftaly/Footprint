@@ -43,14 +43,10 @@ extension Footprint {
             let pageSize: UInt64 = kerr == KERN_SUCCESS ? UInt64(info.page_size) : UInt64(getpagesize())
             let systemLimit = Int64(ProcessInfo.processInfo.physicalMemory)
             let systemRemaining: Int64 = vmKerr == KERN_SUCCESS ? Int64(UInt64(vmStats.free_count) * pageSize) : 0
-            let system = Footprint.Memory.System(limit: systemLimit, remaining: systemRemaining)
 
             return Footprint.Memory(
-                used: used,
-                remaining: remaining,
-                compressed: compressed,
-                pressure: pressure,
-                system: system
+                app: Footprint.Memory.App(used: used, remaining: remaining, compressed: compressed, pressure: pressure),
+                system: Footprint.Memory.System(limit: systemLimit, remaining: systemRemaining)
             )
         }
 
