@@ -391,13 +391,13 @@ class FootprintTests: XCTestCase {
         XCTAssertEqual(bytes, Int64(150) * 16_384)
     }
 
-    func testAvailableSystemBytesIgnoresSpeculativeAndOtherCategories() {
-        // Speculative, active, wired, and compressor pages are deliberately
-        // not part of "available" — only free + inactive count.
+    func testAvailableSystemBytesIgnoresInUsePages() {
+        // Active, wired, and compressor pages are in use — they don't count
+        // toward available memory. (Speculative pages aren't tested
+        // separately because they're a subset of free_count.)
         var stats = vm_statistics64_data_t()
         stats.free_count = 10
         stats.inactive_count = 20
-        stats.speculative_count = 1_000
         stats.active_count = 2_000
         stats.wire_count = 3_000
         stats.compressor_page_count = 4_000

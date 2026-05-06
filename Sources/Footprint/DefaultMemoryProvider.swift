@@ -53,9 +53,9 @@ extension Footprint {
 
         // Inactive pages still hold data, but the kernel can reclaim them
         // without paging out, so we treat them as available system headroom
-        // alongside truly free pages. Speculative and other categories are
-        // intentionally excluded — they're either active data or fast-path
-        // caches the kernel doesn't promise to free.
+        // alongside truly free pages. Active, wired, and compressor pages
+        // are in use and don't count. Speculative pages aren't added
+        // separately because they're already part of free_count.
         static func availableSystemBytes(from stats: vm_statistics64_data_t, pageSize: UInt64) -> Int64 {
             let pages = UInt64(stats.free_count) + UInt64(stats.inactive_count)
             return Int64(pages * pageSize)
