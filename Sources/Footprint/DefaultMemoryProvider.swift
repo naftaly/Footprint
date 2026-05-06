@@ -40,7 +40,7 @@ extension Footprint {
                     host_statistics64(hostPort, HOST_VM_INFO64, $0, &vmInfoCount)
                 }
             }
-            let pageSize: UInt64 = kerr == KERN_SUCCESS ? UInt64(info.page_size) : UInt64(getpagesize())
+            let pageSize = UInt64(getpagesize())
             let systemLimit = Int64(ProcessInfo.processInfo.physicalMemory)
             // Inactive pages still hold data but the kernel can reclaim them
             // without paging out, so they count as available alongside truly
