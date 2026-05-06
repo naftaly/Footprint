@@ -397,6 +397,14 @@ class FootprintTests: XCTestCase {
 
         let footprint = Footprint(mock)
 
+        // Wait for the initial observer callback to confirm Footprint has
+        // latched the starting `.normal` system state. Relying on a fixed
+        // sleep is racy because the timer's leeway can push the first
+        // heartbeat out by up to 500ms.
+        let initialLatched = XCTestExpectation(description: "initial memory snapshot delivered")
+        footprint.observe { _ in initialLatched.fulfill() }
+        wait(for: [initialLatched], timeout: 2.0)
+
         let expect = XCTestExpectation(description: "memoryDidChangeNotification fires with .headroom")
         expect.assertForOverFulfill = false
 
@@ -421,9 +429,6 @@ class FootprintTests: XCTestCase {
             expect.fulfill()
         }
         defer { NotificationCenter.default.removeObserver(token) }
-
-        // Let the first heartbeat capture the initial system state.
-        Thread.sleep(forTimeInterval: 0.1)
 
         // Drop free memory enough to push system state from .normal to .terminal.
         mock.systemRemaining = 200_000_000 // ~97.5% used

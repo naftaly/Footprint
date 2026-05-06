@@ -26,10 +26,10 @@
         /// ```swift
         /// Text("Hello, World!")
         ///     .onFootprintMemoryDidChange { newMemory, oldMemory, changeSet in
-        ///         print("Memory state changed from \(oldState) to \(newState)")
+        ///         print("Memory state changed from \(oldMemory.app.state) to \(newMemory.app.state)")
         ///         // Perform actions based on the memory change
         ///     }
-        @inlinable func onFootprintMemoryDidChange(perform action: @escaping (_ state: Footprint.Memory, _ previousState: Footprint.Memory, _ changes: Set<Footprint.ChangeType>) -> Void) -> some View {
+        @inlinable func onFootprintMemoryDidChange(perform action: @escaping (_ memory: Footprint.Memory, _ previousMemory: Footprint.Memory, _ changes: Set<Footprint.ChangeType>) -> Void) -> some View {
             _ = Footprint.shared // make sure it's running
             return onReceive(NotificationCenter.default.publisher(for: Footprint.memoryDidChangeNotification)) { note in
                 if let changes = note.userInfo?[Footprint.changesKey] as? Set<Footprint.ChangeType>,

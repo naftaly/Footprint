@@ -19,7 +19,10 @@ public extension Footprint {
         case pressure
         /// `memory.system.state` transitioned to a new bucket.
         case headroom
-        /// `memory.app.used` or `memory.system.remaining` moved by ~1 MB+.
+        /// Footprint values changed in a way callers may want to react to.
+        /// Always emitted alongside `.state`, `.pressure`, or `.headroom`,
+        /// and additionally on its own when `memory.app.used` or
+        /// `memory.system.remaining` move by ~1 MB+.
         case footprint
     }
 
@@ -87,7 +90,7 @@ public extension Footprint {
             public let compressed: Int64
             /// The state describing where your app sits within the scope of its memory limit.
             public let state: State
-            /// The state of memory pressure (aka. how close the app is to being Jetsamed/Jetisoned).
+            /// The state of memory pressure (aka. how close the app is to being jetsammed/jettisoned).
             public let pressure: State
 
             init(used: Int64, remaining: Int64, compressed: Int64, pressure: State) {

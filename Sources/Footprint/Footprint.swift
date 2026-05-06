@@ -279,11 +279,11 @@ fileprivate extension Footprint {
         let continuations = Array(_memoryStreamContinuations.values)
         _memoryLock.unlock()
 
-        // Send all observers outside of the lock on the main queue.
-        // main queue is important since most of us will want to
-        // make changes that might touch the UI.
+        // NotificationCenter delivery is hopped to the main queue since most
+        // observers will want to update UI in response. Closure observers
+        // and AsyncStream continuations stay on `_queue` — callers that need
+        // to touch the main thread should hop themselves.
         if changeSet.contains(.pressure) || changeSet.contains(.state) || changeSet.contains(.headroom) {
-            // Create isolated copies for the main actor closure
             let notificationNewMemory = newMemory
             let notificationOldMemory = oldMemory
             let notificationChangeSet = changeSet
@@ -296,7 +296,6 @@ fileprivate extension Footprint {
             }
         }
 
-        // Send footprint observers
         if changeSet.contains(.footprint) {
             observers.forEach { $0(newMemory) }
             continuations.forEach { $0.yield(newMemory) }
