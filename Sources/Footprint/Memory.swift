@@ -64,13 +64,32 @@ public extension Footprint {
             }
 
             /// Derive a `State` from a `used` value and its enclosing `limit`.
+            ///
+            /// `baseline` shifts the 25/50/75/90 ladder up the range, treating
+            /// `[0, baseline]` as a "logical zero" that always reports `.normal`.
+            /// The four danger thresholds then land at `baseline + 0.25 × (1 - baseline)`,
+            /// `+ 0.50`, `+ 0.75`, `+ 0.90`. With the default `baseline = 0` the
+            /// thresholds are the original 25/50/75/90.
+            ///
+            /// `System` passes `baseline = 0.80` because a ratio against
+            /// `physicalMemory` is dominated by wired kernel pages and
+            /// always-on system overhead; only the top ~20% of the range is
+            /// meaningful headroom worth bucketing.
+            ///
+            /// `baseline` is clamped to `[0, 1]`; out-of-range values would
+            /// otherwise collapse or invert the ladder.
+            ///
             /// Returns `.normal` when `limit <= 0`.
-            public static func from(used: Int64, limit: Int64) -> State {
-                let usedRatio = limit > 0 ? Double(used) / Double(limit) : 0
-                return usedRatio < 0.25 ? .normal :
-                    usedRatio < 0.50 ? .warning :
-                    usedRatio < 0.75 ? .urgent :
-                    usedRatio < 0.90 ? .critical : .terminal
+            public static func from(used: Int64, limit: Int64, baseline: Double = 0) -> State {
+                guard limit > 0 else { return .normal }
+                let baseline = min(max(baseline, 0.0), 1.0)
+                let usedRatio = Double(used) / Double(limit)
+                let scale = 1.0 - baseline
+                if usedRatio < baseline + 0.25 * scale { return .normal }
+                if usedRatio < baseline + 0.50 * scale { return .warning }
+                if usedRatio < baseline + 0.75 * scale { return .urgent }
+                if usedRatio < baseline + 0.90 * scale { return .critical }
+                return .terminal
             }
         }
 
@@ -93,13 +112,27 @@ public extension Footprint {
             /// The state of memory pressure (aka. how close the app is to being jetsammed/jettisoned).
             public let pressure: State
 
-            init(used: Int64, remaining: Int64, compressed: Int64, pressure: State) {
+            init(used: Int64, remaining: Int64, compressed: Int64, state: State, pressure: State) {
                 self.used = used
                 self.remaining = remaining
                 self.compressed = compressed
+                self.state = state
                 self.pressure = pressure
                 limit = used + remaining
-                state = State.from(used: used, limit: limit)
+            }
+
+            /// Convenience init that derives `state` from `(used, used + remaining)`
+            /// via `State.from(used:limit:)`. Use this in any provider whose state
+            /// policy matches the default; reach for the explicit-state init only
+            /// when overriding that policy.
+            init(used: Int64, remaining: Int64, compressed: Int64, pressure: State) {
+                self.init(
+                    used: used,
+                    remaining: remaining,
+                    compressed: compressed,
+                    state: State.from(used: used, limit: used + remaining),
+                    pressure: pressure
+                )
             }
         }
 
@@ -107,17 +140,34 @@ public extension Footprint {
         public struct System: Sendable {
             /// Total physical memory on the device.
             public let limit: Int64
-            /// Currently available physical memory on the device — free pages
-            /// plus inactive pages the kernel can reclaim without paging out.
+            /// Currently available physical memory on the device — truly free
+            /// pages (excluding speculative) plus the cached-files bucket
+            /// (purgeable + external pages). Matches Activity Monitor's
+            /// "Free + Cached Files" view.
             public let remaining: Int64
-            /// The state describing where the device sits within the scope of its
-            /// physical memory limit.
+            /// The state describing the device's memory headroom, derived from
+            /// `(used, limit)` with `baseline = 0.80` so only the top ~20% of
+            /// the range maps onto warning/urgent/critical/terminal. See
+            /// `State.from(used:limit:baseline:)` for the rationale.
             public let state: State
 
-            init(limit: Int64, remaining: Int64) {
+            init(limit: Int64, remaining: Int64, state: State) {
                 self.limit = limit
                 self.remaining = remaining
-                state = State.from(used: max(limit - remaining, 0), limit: limit)
+                self.state = state
+            }
+
+            /// Convenience init that derives `state` from `(used, limit)` with
+            /// `baseline = 0.80`. Use this in any provider whose state policy
+            /// matches the default; reach for the explicit-state init only when
+            /// overriding that policy.
+            init(limit: Int64, remaining: Int64) {
+                let used = max(limit - remaining, 0)
+                self.init(
+                    limit: limit,
+                    remaining: remaining,
+                    state: State.from(used: used, limit: limit, baseline: 0.80)
+                )
             }
         }
 

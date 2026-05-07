@@ -146,9 +146,10 @@ ContentView()
 #### Headroom-Specific Changes
 
 System-wide headroom (device-level available physical memory — free pages
-plus inactive pages the kernel can reclaim) is independent of the app's own
-memory limit. Use this to back off when the device is under pressure even
-when the app still has room within its own budget.
+plus the kernel's reclaimable cached files, matching Activity Monitor's
+"Free + Cached Files" view) is independent of the app's own memory limit.
+Use this to back off when the device is under pressure even when the app
+still has room within its own budget.
 
 ```swift
 ContentView()
@@ -208,13 +209,23 @@ if Footprint.shared.canAllocate(bytes: sizeNeeded) {
 
 ## Memory States Explained
 
-Footprint categorizes memory usage into five states based on the ratio of used memory to total limit:
+Footprint categorizes memory into five states. App-level and system-level state share the same ladder but apply it to different ranges, since the meaningful signal lives in different parts of each axis.
 
-- **Normal** (< 25%): Full functionality, optimal performance
-- **Warning** (25-50%): Begin reducing memory usage, optimize caches
-- **Urgent** (50-75%): Significant memory reduction needed
-- **Critical** (75-90%): Aggressive cleanup required
-- **Terminal** (> 90%): Imminent termination risk, emergency measures
+**App state** (`memory.app.state`) buckets used memory against the app's jetsam limit:
+
+- **Normal** (used < 25% of limit): Full functionality, optimal performance
+- **Warning** (25% ≤ used < 50%): Begin reducing memory usage, optimize caches
+- **Urgent** (50% ≤ used < 75%): Significant memory reduction needed
+- **Critical** (75% ≤ used < 90%): Aggressive cleanup required
+- **Terminal** (used ≥ 90%): Imminent termination risk, emergency measures
+
+**System state** (`memory.system.state`) buckets remaining physical memory against the device's total RAM, but only across the top ~20% of the range — the wired kernel pages and unreclaimable caches that exist on every device dominate any ratio against full RAM, so the bottom 80% is treated as a single "logical zero" that always reports normal. In remaining-of-physical-memory terms:
+
+- **Normal** (remaining > 15%): Plenty of device headroom
+- **Warning** (10% < remaining ≤ 15%): Headroom narrowing
+- **Urgent** (5% < remaining ≤ 10%): Device getting tight
+- **Critical** (2% < remaining ≤ 5%): Reclaim and jetsam likely imminent
+- **Terminal** (remaining ≤ 2%): Near OOM
 
 ## Practical Examples
 
