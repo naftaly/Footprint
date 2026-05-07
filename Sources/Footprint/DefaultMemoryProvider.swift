@@ -44,19 +44,42 @@ extension Footprint {
                 : 0
 
             return Footprint.Memory(
-                app: Footprint.Memory.App(used: used, remaining: remaining, compressed: compressed, pressure: pressure),
-                system: Footprint.Memory.System(limit: Self.systemLimit, remaining: systemRemaining)
+                app: Footprint.Memory.App(
+                    used: used,
+                    remaining: remaining,
+                    compressed: compressed,
+                    pressure: pressure
+                ),
+                system: Footprint.Memory.System(
+                    limit: Self.systemLimit,
+                    remaining: systemRemaining
+                )
             )
         }
 
-        /// Inactive pages still hold data, but the kernel can reclaim them
-        /// without paging out, so we treat them as available system headroom
-        /// alongside truly free pages. Active, wired, and compressor pages
-        /// are in use and don't count. Speculative pages aren't added
-        /// separately because they're already part of free_count.
+        /// Matches Activity Monitor's "Free + Cached Files" view, which is the
+        /// headroom number users see in Xcode's memory gauge.
+        ///
+        /// `free_count` includes `speculative_count` (pages the kernel read in
+        /// opportunistically that may be evicted shortly), so we subtract it
+        /// to get the same conservative "Free" Activity Monitor displays.
+        ///
+        /// `purgeable_count` (volatile pages the kernel can discard) and
+        /// `external_page_count` (all file-backed pages, regardless of queue)
+        /// make up the "Cached Files" bucket. Note that `external_page_count`
+        /// includes file-backed pages that are currently active — reclaiming
+        /// those isn't free, but the kernel can do it without paging anonymous
+        /// memory out, which is the line we care about.
+        ///
+        /// Anonymous inactive pages are deliberately excluded: reclaiming them
+        /// requires compression or swap, which is what we want headroom
+        /// transitions to warn us *before*.
         static func availableSystemBytes(from stats: vm_statistics64_data_t, pageSize: UInt64) -> Int64 {
-            let pages = UInt64(stats.free_count) + UInt64(stats.inactive_count)
-            return Int64(pages * pageSize)
+            let speculative = UInt64(stats.speculative_count)
+            let freeCount = UInt64(stats.free_count)
+            let free = freeCount > speculative ? freeCount - speculative : 0
+            let cached = UInt64(stats.purgeable_count) + UInt64(stats.external_page_count)
+            return Int64((free + cached) * pageSize)
         }
 
         // All process-lifetime constants — page size and physical memory
