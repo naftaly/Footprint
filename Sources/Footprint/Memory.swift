@@ -76,9 +76,13 @@ public extension Footprint {
             /// always-on system overhead; only the top ~20% of the range is
             /// meaningful headroom worth bucketing.
             ///
+            /// `baseline` is clamped to `[0, 1]`; out-of-range values would
+            /// otherwise collapse or invert the ladder.
+            ///
             /// Returns `.normal` when `limit <= 0`.
             public static func from(used: Int64, limit: Int64, baseline: Double = 0) -> State {
                 guard limit > 0 else { return .normal }
+                let baseline = min(max(baseline, 0.0), 1.0)
                 let usedRatio = Double(used) / Double(limit)
                 let scale = 1.0 - baseline
                 if usedRatio < baseline + 0.25 * scale { return .normal }
